@@ -5,9 +5,11 @@ services:
     build:
       context: ../gcoms-public-backend
     volumes:
-      - ../gcoms-public-backend:/app
+      - ../gcoms-public-backend:/src
     ports:
       - "3001:3001"
+    environment:
+      - TSX_WATCH_POLL=1
     env_file:
       - ../gcoms-public-backend/.env
 
@@ -15,7 +17,12 @@ services:
     build:
       context: ../gcoms-public-bot
     volumes:
-      - ../gcoms-public-bot:/app
+      - ../gcoms-public-bot/src:/src
+      - /src/node_modules
+      - ../gcoms-public-bot/package.json:/src/package.json:ro
+      - ../gcoms-public-bot/package-lock.json:/src/package-lock.json:ro
+    ports:
+      - "3002:3002"
     env_file:
       - ../gcoms-public-bot/.env
 
