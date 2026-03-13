@@ -10,8 +10,12 @@ services:
       - "3001:3001"
     environment:
       - TSX_WATCH_POLL=1
+      - BOT_API_URL=http://bot:3000
     env_file:
       - ../gcoms-public-backend/.env
+    depends_on:
+      - bot
+      - mongo
 
   bot:
     build:
@@ -22,9 +26,13 @@ services:
       - ../gcoms-public-bot/package.json:/src/package.json:ro
       - ../gcoms-public-bot/package-lock.json:/src/package-lock.json:ro
     ports:
-      - "3002:3002"
+      - "3002:3000"
+    environment:
+      - PORT=3000
     env_file:
       - ../gcoms-public-bot/.env
+    depends_on:
+      - mongo
 
   frontend:
     build:
@@ -34,6 +42,10 @@ services:
       - /app/node_modules # undvik att skriva över node_modules från host
     ports:
       - "3000:3000"
+    environment:
+      - BACKEND_API_URL=http://backend:3001
+    depends_on:
+      - backend
 
   mongo:
     image: mongo:7
