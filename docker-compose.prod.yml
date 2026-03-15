@@ -1,0 +1,55 @@
+version: "3.9"
+
+services:
+  frontend:
+    build:
+      context: ../Gamercoms-web
+      dockerfile: dockerfile.prod
+      args:
+        - BACKEND_API_URL=http://backend:3001
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+
+  backend:
+    build:
+      context: ../gcoms-public-backend
+      dockerfile: dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - BOT_API_URL=http://bot:3000
+      - FRONTEND_URL=https://gamercoms.com
+    env_file:
+      - ../gcoms-public-backend/.env
+    depends_on:
+      - bot
+      - mongo
+
+  bot:
+    build:
+      context: ../gcoms-public-bot
+      dockerfile: dockerfile.prod
+    restart: unless-stopped
+    # No ports — only reachable internally by the backend
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+    env_file:
+      - ../gcoms-public-bot/.env
+    depends_on:
+      - mongo
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    # No ports — not exposed externally
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
