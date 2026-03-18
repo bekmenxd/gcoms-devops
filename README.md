@@ -6,7 +6,7 @@ Infrastructure and deployment configuration for the Gamercoms stack.
 
 Frontend
 Open git bash, run this
-/usr/bin/tar --exclude='_/node_modules' --exclude='_/.env' --exclude='\*/.next' -czf /c/Users/linus/AppData/Local/Temp/gcoms-frontend.tar.gz -C /c/Users/linus/dev Gamercoms-web/
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' --exclude='*/.next' -czf /c/Users/linus/AppData/Local/Temp/gcoms-frontend.tar.gz -C /c/Users/linus/dev Gamercoms-web/
 
 Then in PowerShell:
 
@@ -17,7 +17,7 @@ ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-frontend.tar.gz -C /home/linus/gco
 ssh linus@172.232.129.62 "cd ~/gcoms/gcoms-devops && docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml up --build -d frontend"
 
 Backend — Git Bash:
-/usr/bin/tar --exclude='_/node_modules' --exclude='_/.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-backend.tar.gz -C /c/Users/linus/dev gcoms-public-backend/
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-backend.tar.gz -C /c/Users/linus/dev gcoms-public-backend/
 Backend — PowerShell:
 scp $env:TEMP\gcoms-backend.tar.gz linus@172.232.129.62:/tmp/
 ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-backend.tar.gz -C /home/linus/gcoms/"
@@ -26,14 +26,14 @@ ssh linus@172.232.129.62 "cd ~/gcoms/gcoms-devops && docker compose -f ~/gcoms/g
 ---
 
 Bot — Git Bash:
-/usr/bin/tar --exclude='_/node_modules' --exclude='_/.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-bot.tar.gz -C /c/Users/linus/dev gcoms-public-bot/
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-bot.tar.gz -C /c/Users/linus/dev gcoms-public-bot/
 Bot — PowerShell:
 scp $env:TEMP\gcoms-bot.tar.gz linus@172.232.129.62:/tmp/
 ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-bot.tar.gz -C /home/linus/gcoms/"
 ssh linus@172.232.129.62 "cd ~/gcoms/gcoms-devops && docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml up --build -d bot"
 
 Devops — Git Bash:
-/usr/bin/tar --exclude='_/node_modules' --exclude='_/.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-devops.tar.gz -C /c/Users/linus/dev gcoms-devops/
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-devops.tar.gz -C /c/Users/linus/dev gcoms-devops/
 Devops — PowerShell:
 scp $env:TEMP\gcoms-devops.tar.gz linus@172.232.129.62:/tmp/
 ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-devops.tar.gz -C /home/linus/gcoms/"
