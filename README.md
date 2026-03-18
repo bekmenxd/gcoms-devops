@@ -2,6 +2,43 @@
 
 Infrastructure and deployment configuration for the Gamercoms stack.
 
+## Manual deploy
+
+Frontend
+Open git bash, run this
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' --exclude='*/.next' -czf /c/Users/linus/AppData/Local/Temp/gcoms-frontend.tar.gz -C /c/Users/linus/dev Gamercoms-web/
+
+Then in PowerShell:
+
+scp $env:TEMP\gcoms-frontend.tar.gz linus@172.232.129.62:/tmp/
+
+ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-frontend.tar.gz -C /home/linus/gcoms/"
+
+ssh linus@172.232.129.62 "cd ~/gcoms/gcoms-devops && docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml up --build -d frontend"
+
+Backend — Git Bash:
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-backend.tar.gz -C /c/Users/linus/dev gcoms-public-backend/
+Backend — PowerShell:
+scp $env:TEMP\gcoms-backend.tar.gz linus@172.232.129.62:/tmp/
+ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-backend.tar.gz -C /home/linus/gcoms/"
+ssh linus@172.232.129.62 "cd ~/gcoms/gcoms-devops && docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml up --build -d backend"
+
+---
+
+Bot — Git Bash:
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-bot.tar.gz -C /c/Users/linus/dev gcoms-public-bot/
+Bot — PowerShell:
+scp $env:TEMP\gcoms-bot.tar.gz linus@172.232.129.62:/tmp/
+ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-bot.tar.gz -C /home/linus/gcoms/"
+ssh linus@172.232.129.62 "cd ~/gcoms/gcoms-devops && docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml up --build -d bot"
+
+Devops — Git Bash:
+/usr/bin/tar --exclude='*/node_modules' --exclude='.env' -czf /c/Users/linus/AppData/Local/Temp/gcoms-devops.tar.gz -C /c/Users/linus/dev gcoms-devops/
+Devops — PowerShell:
+scp $env:TEMP\gcoms-devops.tar.gz linus@172.232.129.62:/tmp/
+ssh linus@172.232.129.62 "tar -xzf /tmp/gcoms-devops.tar.gz -C /home/linus/gcoms/"
+(No rebuild needed for devops-only changes, same as the script.)
+
 ## Architecture
 
 ```
@@ -53,10 +90,10 @@ bash push.sh devops
 
 `.env` files are **never committed** and **never transferred by push.sh**. They live only on the server and must be managed manually.
 
-| Service | Path on server |
-|---------|---------------|
+| Service | Path on server                      |
+| ------- | ----------------------------------- |
 | backend | `~/gcoms/gcoms-public-backend/.env` |
-| bot     | `~/gcoms/gcoms-public-bot/.env` |
+| bot     | `~/gcoms/gcoms-public-bot/.env`     |
 
 ### Backend `.env` variables
 
@@ -127,6 +164,7 @@ Nginx configs: `/etc/nginx/sites-available/`
 App ID: `1257298573436125185`
 
 Required settings:
+
 - **OAuth2 → Redirects:** `https://gamercoms.com/auth/discord/callback`
 - **Bot → Privileged Intents:** Enable **Server Members Intent** and **Presence Intent** if used by the bot
 

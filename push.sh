@@ -10,9 +10,13 @@
 set -e
 
 SERVER=172.232.129.62
-REMOTE_DIR=~/gcoms
+REMOTE_DIR=/home/linus/gcoms
 COMPOSE="docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml"
-ROOT="C:/Users/linus/dev"
+# Derive ROOT from script location (parent of gcoms-devops/) so it works on any machine
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Use Git Bash's tar explicitly — Windows has its own tar.exe that doesn't understand /c/ paths
+TAR=/usr/bin/tar
 
 if [ $# -eq 0 ]; then
   echo "Usage: bash push.sh <service> [service2 ...]"
@@ -26,7 +30,7 @@ for SERVICE in "$@"; do
   case "$SERVICE" in
     frontend)
       echo "==> Packing frontend..."
-      tar --exclude='*/node_modules' --exclude='*/.env' --exclude='*/.next' \
+      $TAR --exclude='*/node_modules' --exclude='*/.env' --exclude='*/.next' \
           -czf /tmp/gcoms-frontend.tar.gz -C "$ROOT" Gamercoms-web/
       scp /tmp/gcoms-frontend.tar.gz $SERVER:/tmp/
       ssh $SERVER "tar -xzf /tmp/gcoms-frontend.tar.gz -C $REMOTE_DIR/"
@@ -34,7 +38,7 @@ for SERVICE in "$@"; do
       ;;
     backend)
       echo "==> Packing backend..."
-      tar --exclude='*/node_modules' --exclude='*/.env' \
+      $TAR --exclude='*/node_modules' --exclude='*/.env' \
           -czf /tmp/gcoms-backend.tar.gz -C "$ROOT" gcoms-public-backend/
       scp /tmp/gcoms-backend.tar.gz $SERVER:/tmp/
       ssh $SERVER "tar -xzf /tmp/gcoms-backend.tar.gz -C $REMOTE_DIR/"
@@ -42,7 +46,7 @@ for SERVICE in "$@"; do
       ;;
     bot)
       echo "==> Packing bot..."
-      tar --exclude='*/node_modules' --exclude='*/.env' \
+      $TAR --exclude='*/node_modules' --exclude='*/.env' \
           -czf /tmp/gcoms-bot.tar.gz -C "$ROOT" gcoms-public-bot/
       scp /tmp/gcoms-bot.tar.gz $SERVER:/tmp/
       ssh $SERVER "tar -xzf /tmp/gcoms-bot.tar.gz -C $REMOTE_DIR/"
@@ -50,7 +54,7 @@ for SERVICE in "$@"; do
       ;;
     devops)
       echo "==> Packing devops..."
-      tar --exclude='*/node_modules' --exclude='*/.env' \
+      $TAR --exclude='*/node_modules' --exclude='*/.env' \
           -czf /tmp/gcoms-devops.tar.gz -C "$ROOT" gcoms-devops/
       scp /tmp/gcoms-devops.tar.gz $SERVER:/tmp/
       ssh $SERVER "tar -xzf /tmp/gcoms-devops.tar.gz -C $REMOTE_DIR/"

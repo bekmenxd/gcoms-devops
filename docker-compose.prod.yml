@@ -12,6 +12,11 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
 
   backend:
     build:
@@ -29,6 +34,11 @@ services:
     depends_on:
       - bot
       - mongo
+    deploy:
+      resources:
+        limits:
+          cpus: "0.75"
+          memory: 256M
 
   bot:
     build:
@@ -43,6 +53,11 @@ services:
       - ../gcoms-public-bot/.env
     depends_on:
       - mongo
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
 
   mongo:
     image: mongo:7
@@ -50,6 +65,11 @@ services:
     # No ports — not exposed externally
     volumes:
       - mongo-data:/data/db
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
 
 volumes:
   mongo-data:
