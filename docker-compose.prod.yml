@@ -28,7 +28,7 @@ services:
     environment:
       - NODE_ENV=production
       - BOT_API_URL=http://bot:3000
-      - FRONTEND_URL=https://gamercoms.com
+      - FRONTEND_URL=https://www.gamercoms.com
     env_file:
       - ../gcoms-public-backend/.env
     depends_on:
