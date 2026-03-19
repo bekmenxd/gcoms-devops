@@ -16,7 +16,7 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          memory: 768M
 
   backend:
     build:
@@ -38,7 +38,7 @@ services:
       resources:
         limits:
           cpus: "0.75"
-          memory: 256M
+          memory: 384M
 
   bot:
     build:
@@ -57,7 +57,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 256M
+          memory: 384M
 
   mongo:
     image: mongo:7
@@ -69,7 +69,7 @@ services:
       resources:
         limits:
           cpus: "0.5"
-          memory: 512M
+          memory: 1.5G
 
 volumes:
   mongo-data:
