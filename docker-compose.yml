@@ -45,6 +45,9 @@ services:
     environment:
       - BACKEND_API_URL=http://backend:3001
       - WATCHPACK_POLLING=true
+      # Local-only: invite button installs the TEST bot (GComsTestBot).
+      # Production omits this and falls back to the prod app id in discord.ts.
+      - NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID=1326999027321012246
     depends_on:
       - backend
 
