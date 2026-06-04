@@ -106,6 +106,7 @@ JWT_REFRESH_SECRET=
 NODE_ENV=production
 BOT_API_URL=http://bot:3000
 FRONTEND_URL=https://gamercoms.com
+INTERNAL_API_SECRET=      # Shared secret for backend → bot internal API; MUST match the bot's value
 ```
 
 ### Bot `.env` variables
@@ -115,6 +116,7 @@ DISCORD_API_TOKEN=        # Bot token from Discord Developer Portal
 MONGODB_URI=mongodb://mongo:27017/gamercoms
 NODE_ENV=production
 PORT=3000
+INTERNAL_API_SECRET=      # Shared secret for backend → bot internal API; MUST match the backend's value
 DEV_GUILD_ID=1336405641673183254
 RAWG_API_KEY= POSTHOG
 POSTHOG_API_KEY= POSTHOG
@@ -127,6 +129,16 @@ WEEKLY_LEADERBOARD_POST_DAY=0
 WEEKLY_LEADERBOARD_POST_HOUR=19
 WEEKLY_LEADERBOARD_POST_MINUTE=0
 ```
+
+> ⚠️ **`INTERNAL_API_SECRET` is required in production.** It guards every
+> privileged bot endpoint the backend calls — `queues/manage/*` (create / list /
+> kick / block / close / browser-join / history) plus guild `post-targets` and
+> `settings`. The bot's guard **fails closed** under `NODE_ENV=production`: if the
+> variable is unset it returns **503** for all of those routes, so the entire
+> web-queue management dashboard breaks. Set the **same** random value in both
+> the backend and bot `.env` (e.g. `openssl rand -hex 32`), then **recreate both
+> containers** (`up -d bot backend`, not `restart`) so the env reloads. In dev
+> (`NODE_ENV` ≠ `production`) an unset value is allowed with a warning.
 
 To edit an env file on the server:
 
@@ -158,6 +170,44 @@ docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml restart backend
 # Recreate a container (required after .env changes)
 docker compose -f ~/gcoms/gcoms-devops/docker-compose.prod.yml up -d backend
 ```
+
+## Web-queue manual E2E test (staging)
+
+Most of the web-queue feature is covered by automated tests (`npm test` in
+`gcoms-public-bot` — see that repo's test note). These steps cover only what
+automation **can't** reach: the real Discord voice transport, queue creation's
+channel/invite calls, embeds, and the frontend through OAuth. Run against a
+**test/staging Discord server**, not production.
+
+**Prereq:** `INTERNAL_API_SECRET` must be set to the **same** value in both the
+bot and backend `.env`, and both containers recreated (`up -d bot backend`) —
+without it every `manage/*` call 503s and the dashboard is dead.
+
+1. **Create** — log into the site, create a queue in the staging guild. Confirm
+   a Discord **voice channel + invite** appear, and (if a post channel was
+   picked) an **embed** is posted with the right role pings.
+2. **Host joins voice** — join the new voice channel yourself. Confirm the queue
+   stays open (the "join voice or this auto-closes" warning clears) and you show
+   in the roster / embed.
+3. **Web reserve → confirm** — from another account, "Join from web" in the
+   directory. Confirm the 2-min countdown + invite, then join voice within it →
+   the reservation flips to confirmed (badge clears) and the roster/embed update.
+4. **Reservation expiry** — reserve again but **don't** join voice. After ~2 min
+   confirm the slot is released and that account is barred from re-joining *that*
+   queue (no-show). Then **cancel**: reserve, hit "Cancel reservation," confirm
+   the slot frees immediately and you can join other queues again.
+5. **Empty reclaim** — everyone leaves voice. After the 2-min grace the channel +
+   embed are deleted and the queue leaves the public directory.
+6. **Kick / block / unkick / unblock** — from the dashboard kick a participant
+   (disconnected, can't rejoin), block one (gone from all your queues, can't
+   rejoin any), then "Allow back" / "Unblock" from the *Removed from this queue*
+   list and confirm they can rejoin.
+7. **Close** — close a queue from the dashboard; confirm immediate teardown (no
+   grace) and that it disappears from the directory.
+
+Watch `docker compose ... logs bot --tail=50` and `logs backend` throughout for
+errors; a 415/503/500 there usually means a missing parser body or the
+`INTERNAL_API_SECRET` mismatch.
 
 ## SSL Certificates
 

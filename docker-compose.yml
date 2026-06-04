@@ -44,6 +44,7 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_API_URL=http://backend:3001
+      - WATCHPACK_POLLING=true
     depends_on:
       - backend
 

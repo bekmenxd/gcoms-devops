@@ -24,6 +24,22 @@ if [ $# -eq 0 ]; then
   exit 1
 fi
 
+# Wipe a remote directory and re-extract a tar, preserving the .env file.
+# Usage: fresh_extract <tar_path> <remote_dir_name>
+fresh_extract() {
+  local tar_path="$1"
+  local dir_name="$2"
+  ssh $SERVER "
+    set -e
+    TARGET=$REMOTE_DIR/$dir_name
+    ENV_TMP=\$(mktemp)
+    [ -f \"\$TARGET/.env\" ] && cp \"\$TARGET/.env\" \"\$ENV_TMP\"
+    rm -rf \"\$TARGET\"
+    tar -xzf $tar_path -C $REMOTE_DIR/
+    [ -s \"\$ENV_TMP\" ] && mv \"\$ENV_TMP\" \"\$TARGET/.env\" || rm -f \"\$ENV_TMP\"
+  "
+}
+
 SERVICES_TO_BUILD=()
 
 for SERVICE in "$@"; do
@@ -33,7 +49,7 @@ for SERVICE in "$@"; do
       $TAR --exclude='*/node_modules' --exclude='*/.env' --exclude='*/.next' \
           -czf /tmp/gcoms-frontend.tar.gz -C "$ROOT" Gamercoms-web/
       scp /tmp/gcoms-frontend.tar.gz $SERVER:/tmp/
-      ssh $SERVER "tar -xzf /tmp/gcoms-frontend.tar.gz -C $REMOTE_DIR/"
+      fresh_extract /tmp/gcoms-frontend.tar.gz Gamercoms-web
       SERVICES_TO_BUILD+=("frontend")
       ;;
     backend)
@@ -41,7 +57,7 @@ for SERVICE in "$@"; do
       $TAR --exclude='*/node_modules' --exclude='*/.env' \
           -czf /tmp/gcoms-backend.tar.gz -C "$ROOT" gcoms-public-backend/
       scp /tmp/gcoms-backend.tar.gz $SERVER:/tmp/
-      ssh $SERVER "tar -xzf /tmp/gcoms-backend.tar.gz -C $REMOTE_DIR/"
+      fresh_extract /tmp/gcoms-backend.tar.gz gcoms-public-backend
       SERVICES_TO_BUILD+=("backend")
       ;;
     bot)
@@ -49,7 +65,7 @@ for SERVICE in "$@"; do
       $TAR --exclude='*/node_modules' --exclude='*/.env' \
           -czf /tmp/gcoms-bot.tar.gz -C "$ROOT" gcoms-public-bot/
       scp /tmp/gcoms-bot.tar.gz $SERVER:/tmp/
-      ssh $SERVER "tar -xzf /tmp/gcoms-bot.tar.gz -C $REMOTE_DIR/"
+      fresh_extract /tmp/gcoms-bot.tar.gz gcoms-public-bot
       SERVICES_TO_BUILD+=("bot")
       ;;
     devops)
@@ -57,7 +73,7 @@ for SERVICE in "$@"; do
       $TAR --exclude='*/node_modules' --exclude='*/.env' \
           -czf /tmp/gcoms-devops.tar.gz -C "$ROOT" gcoms-devops/
       scp /tmp/gcoms-devops.tar.gz $SERVER:/tmp/
-      ssh $SERVER "tar -xzf /tmp/gcoms-devops.tar.gz -C $REMOTE_DIR/"
+      fresh_extract /tmp/gcoms-devops.tar.gz gcoms-devops
       # No rebuild needed for devops-only changes
       ;;
     *)
