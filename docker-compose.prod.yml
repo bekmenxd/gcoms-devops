@@ -12,6 +12,10 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      # Runtime value for Server Components (referral landing page) that call the
+      # backend directly. The build arg above bakes it for next.config rewrites;
+      # this makes it available at request time too.
+      - BACKEND_API_URL=http://backend:3001
     deploy:
       resources:
         limits:
