@@ -45,9 +45,12 @@ services:
     environment:
       - BACKEND_API_URL=http://backend:3001
       - WATCHPACK_POLLING=true
-      # Local-only: invite button installs the TEST bot (GComsTestBot).
-      # Production omits this and falls back to the prod app id in discord.ts.
-      - NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID=1326999027321012246
+      # NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID is intentionally NOT set here so it is
+      # read from Gamercoms-web/.env.local. A value set in this environment block
+      # becomes a real env var and would override .env.local — Next.js never
+      # overwrites an already-set process.env var. Set the local TEST bot id in
+      # .env.local. Production omits it and falls back to the prod app id in
+      # src/lib/discord.ts.
     depends_on:
       - backend
 
