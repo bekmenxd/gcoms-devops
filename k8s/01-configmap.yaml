@@ -1,0 +1,50 @@
+# Non-secret configuration only. Anything token/credential-shaped belongs in
+# 02-secret.example.yaml instead -- see k8s/README.md for the full split and
+# the reasoning behind each variable's placement.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gamercoms-config
+  namespace: gamercoms
+data:
+  NODE_ENV: "production"
+
+  # Service-to-service URLs -- Compose service-name DNS maps 1:1 onto k8s
+  # Service DNS within the same namespace, no other change needed.
+  BOT_API_URL: "http://bot:3000"
+  BACKEND_API_URL: "http://backend:3001"
+  FRONTEND_URL: "https://www.gamercoms.com"
+
+  # Bot's own listen port (read via process.env.PORT).
+  PORT: "3000"
+
+  # Public Discord application ID -- not secret, but repo-specific.
+  DISCORD_CLIENT_ID: "REPLACE_ME"
+
+  # Only meaningful if bot-side Discord dev/test commands are deployed from
+  # inside the cluster; leave as-is otherwise.
+  DEV_GUILD_ID: "REPLACE_ME"
+
+  # Weekly filled-queues leaderboard job (bot). Values below mirror
+  # gcoms-public-bot/.env.example -- confirm the guild/channel are correct for
+  # this environment before applying.
+  WEEKLY_LEADERBOARD_GUILD_ID: "REPLACE_ME"
+  WEEKLY_LEADERBOARD_CHANNEL_ID: "REPLACE_ME"
+  WEEKLY_LEADERBOARD_TIMEZONE: "Europe/Stockholm"
+  WEEKLY_LEADERBOARD_POST_DAY: "0"
+  WEEKLY_LEADERBOARD_POST_HOUR: "19"
+  WEEKLY_LEADERBOARD_POST_MINUTE: "0"
+
+  # Optional analytics; leave empty to keep PostHog disabled.
+  POSTHOG_HOST: ""
+
+  # --- Build-time-baked, NOT just runtime config -----------------------------
+  # These three are compiled into the frontend image at `next build` time
+  # (NEXT_PUBLIC_* vars, and BACKEND_API_URL for the rewrite destination).
+  # Setting them here only affects the *runtime* Server Component fetch
+  # (BACKEND_API_URL) -- the frontend image build in CI must also pass them as
+  # --build-arg, or the baked-in values will be wrong/missing regardless of
+  # what's in this ConfigMap. See Gamercoms-web/CLAUDE.md notes on
+  # BACKEND_API_URL for the same gotcha already documented there.
+  NEXT_PUBLIC_DISCORD_CLIENT_ID: "REPLACE_ME"
+  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "REPLACE_ME"

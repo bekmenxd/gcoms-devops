@@ -2,3 +2,9 @@
 #Template for AL projects for Dynamics 365 Business Central
 #launch.json folder
 .vscode/
+
+### Kubernetes ###
+# Real secret values -- only k8s/02-secret.example.yaml (placeholders) is
+# ever meant to be committed.
+k8s/02-secret.yaml
+k8s/*.secret.yaml
