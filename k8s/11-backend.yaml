@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: gamercoms
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+        - name: backend
+          image: REGISTRY_PLACEHOLDER/gcoms-public-backend:TAG_PLACEHOLDER
+          ports:
+            - containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: gamercoms-config
+            - secretRef:
+                name: gamercoms-secrets
+          # Readiness checks Mongo (/health); liveness only confirms the
+          # process is still accepting connections. Reusing /health for
+          # liveness would restart every backend pod on a transient Mongo
+          # blip instead of just pulling it from rotation until it recovers
+          # -- see the same reasoning in k8s/12-bot.yaml.
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "192Mi"
+            limits:
+              cpu: "750m"
+              memory: "384Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: gamercoms
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 3001
+      targetPort: 3001
+---
+# Now safe to autoscale: the two High-severity fixes that made replicas > 1
+# unsafe (in-memory create-queue cooldown, missing bot-call timeouts) have
+# already landed on the app-code kubernetes-migration branches. CPU target
+# and min/max below are starting points, not measured -- revisit once this
+# is actually running under real traffic.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend
+  namespace: gamercoms
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
