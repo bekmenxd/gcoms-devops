@@ -1,0 +1,80 @@
+# Discord allows exactly one active gateway session per bot token per shard.
+# This Deployment MUST stay at replicas: 1 and MUST NEVER get an HPA --
+# scaling it out causes the two sessions to fight over the same token,
+# dropping and re-taking each other's connection under normal cluster
+# behavior (e.g. a routine node drain). See k8s/README.md.
+#
+# strategy: Recreate (not the RollingUpdate default) for the same reason: a
+# rolling update briefly runs the old and new pod side by side, which would
+# momentarily create the exact two-session collision above. Recreate tears
+# the old pod down completely before the new one starts, trading a few
+# seconds of bot downtime during deploys for never double-connecting.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot
+  namespace: gamercoms
+  labels:
+    app: bot
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bot
+  template:
+    metadata:
+      labels:
+        app: bot
+    spec:
+      containers:
+        - name: bot
+          image: REGISTRY_PLACEHOLDER/gcoms-public-bot:TAG_PLACEHOLDER
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: gamercoms-config
+            - secretRef:
+                name: gamercoms-secrets
+          # Readiness checks the full dependency picture (/health reports
+          # Discord + Mongo) so k8s stops routing traffic the moment either
+          # drops. Liveness deliberately does NOT reuse /health: a liveness
+          # failure triggers a pod RESTART, and restarting the bot over a
+          # transient Mongo blip would drop a perfectly good Discord gateway
+          # session for no benefit. Liveness only confirms the process itself
+          # is still accepting connections (not deadlocked).
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+---
+# ClusterIP only -- matches compose, where the bot has no published port and
+# is reachable solely by the backend over the internal network.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bot
+  namespace: gamercoms
+spec:
+  selector:
+    app: bot
+  ports:
+    - port: 3000
+      targetPort: 3000
