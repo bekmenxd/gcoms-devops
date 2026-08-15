@@ -8,3 +8,8 @@
 # ever meant to be committed.
 k8s/02-secret.yaml
 k8s/*.secret.yaml
+
+### Local dev overrides ###
+# Machine-specific port remaps etc. -- docker-compose.yml stays canonical
+# for everyone else; this file is never meant to be committed.
+docker-compose.override.yml
