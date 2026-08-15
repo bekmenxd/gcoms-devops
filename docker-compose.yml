@@ -29,6 +29,12 @@ services:
       - "3002:3000"
     environment:
       - PORT=3000
+      # Explicit now that the bot requires MONGODB_URI (no more silent
+      # fallback to this same value baked into the code -- see the
+      # kubernetes-migration branch). This is compose-network wiring, the
+      # same category as backend's BOT_API_URL above, so it belongs here
+      # rather than in the per-developer .env file.
+      - MONGODB_URI=mongodb://mongo:27017/gamercoms
     env_file:
       - ../gcoms-public-bot/.env
     depends_on:
