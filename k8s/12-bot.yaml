@@ -28,9 +28,22 @@ spec:
       labels:
         app: bot
     spec:
+      # Matches dockerfile.prod's non-root `appuser` (uid/gid 1001).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      # See the matching comment in 10-frontend.yaml -- only needed if the
+      # ghcr.io package stays private.
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: bot
           image: REGISTRY_PLACEHOLDER/gcoms-public-bot:TAG_PLACEHOLDER
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3000
           envFrom:
@@ -38,6 +51,16 @@ spec:
                 name: gamercoms-config
             - secretRef:
                 name: gamercoms-secrets
+          env:
+            # Same operator-generated Secret as the backend's -- see the
+            # matching comment in 11-backend.yaml for the naming-convention
+            # caveat. Both services read the same app-user connection
+            # string; there's no separate bot-only Mongo user.
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-gamercoms-gamercoms
+                  key: connectionString.standard
           # Readiness checks the full dependency picture (/health reports
           # Discord + Mongo) so k8s stops routing traffic the moment either
           # drops. Liveness deliberately does NOT reuse /health: a liveness

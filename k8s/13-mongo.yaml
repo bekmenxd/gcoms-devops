@@ -1,0 +1,78 @@
+# Self-hosted MongoDB, 3-member replica set, via the MongoDBCommunity CRD.
+#
+# Assumes the MCK operator (mongodb/mongodb-kubernetes -- the *replacement*
+# for the now-deprecated MongoDB Community Kubernetes Operator, support for
+# which ended November 2025) is already installed cluster-wide via its own
+# Helm chart, the same way ingress-nginx and cert-manager are assumed
+# installed rather than included here. Install it once, before applying this
+# file:
+#   helm repo add mongodb https://mongodb.github.io/helm-charts
+#   helm install community-operator mongodb/community-operator
+#
+# Why self-hosted at all instead of a managed DB: checked Akamai's own
+# Managed Database service first -- it only supports MySQL and PostgreSQL,
+# not MongoDB, despite some third-party sources claiming otherwise (see
+# gcoms-dir/CLAUDE.md's Kubernetes Migration section for the full note). This
+# is the only "stay on Akamai" option, so it's what got built.
+#
+# Storage: linode-block-storage-retain (not the plain linode-block-storage
+# default) -- Retain reclaim policy so an accidental StatefulSet/PVC deletion
+# doesn't take the actual database volumes with it. This is a real database,
+# unlike the stateless frontend/backend/bot pods.
+#
+# Pod labels are set explicitly (via the statefulSet override below) instead
+# of trusting the operator's default `<name>-svc` label, so
+# k8s/15-networkpolicies.yaml has a stable, predictable selector to match
+# against. Verify with `kubectl get pods -n gamercoms -l app=mongo` once
+# deployed -- this hasn't been checked against a live operator reconcile.
+apiVersion: mongodbcommunity.mongodb.com/v1
+kind: MongoDBCommunity
+metadata:
+  name: mongo
+  namespace: gamercoms
+spec:
+  members: 3
+  type: ReplicaSet
+  version: "7.0.14"
+  security:
+    authentication:
+      modes: ["SCRAM"]
+  users:
+    - name: gamercoms
+      db: gamercoms
+      passwordSecretRef:
+        name: mongo-gamercoms-user-password
+        key: password
+      roles:
+        - name: readWrite
+          db: gamercoms
+      scramCredentialsSecretName: mongo-gamercoms-scram
+  statefulSet:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: mongo
+      volumeClaimTemplates:
+        - metadata:
+            name: data-volume
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            storageClassName: linode-block-storage-retain
+            resources:
+              requests:
+                # Starting point, not measured -- same caveat as every other
+                # resource number in this repo. Bump once real data volume is
+                # known.
+                storage: 10Gi
+      template:
+        spec:
+          containers:
+            - name: mongod
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "1Gi"

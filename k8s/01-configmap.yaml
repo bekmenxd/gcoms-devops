@@ -34,6 +34,12 @@ data:
   # Optional analytics; leave empty to keep PostHog disabled.
   POSTHOG_HOST: ""
 
+  # Nightly Mongo backup target (k8s/14-mongo-backup-cronjob.yaml). Not
+  # secret by itself -- pair with the mongo-backup-object-storage Secret
+  # (02-secret.example.yaml) for the actual access keys.
+  MONGO_BACKUP_S3_BUCKET: "REPLACE_ME"
+  MONGO_BACKUP_S3_ENDPOINT: "https://REPLACE_ME.linodeobjects.com"
+
   # --- Build-time-baked, NOT just runtime config -----------------------------
   # These three are compiled into the frontend image at `next build` time
   # (NEXT_PUBLIC_* vars, and BACKEND_API_URL for the rewrite destination).

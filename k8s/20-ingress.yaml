@@ -20,6 +20,15 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Free alternative to a paid WAF/DDoS product (checked Akamai's own App &
+    # API Protector -- enterprise/quote-based pricing, not self-serve, not
+    # worth it at current traffic). Per-client-IP, per-controller-replica --
+    # if the ingress-nginx controller itself is ever scaled to N replicas,
+    # the effective limit multiplies by N. Starting point, not measured, same
+    # caveat as the HPA thresholds elsewhere in this repo -- loosen or
+    # tighten once this is running under real traffic.
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
 spec:
   ingressClassName: nginx
   tls:

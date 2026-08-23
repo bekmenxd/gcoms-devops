@@ -15,9 +15,22 @@ spec:
       labels:
         app: backend
     spec:
+      # Matches dockerfile.prod's non-root `appuser` (uid/gid 1001).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      # See the matching comment in 10-frontend.yaml -- only needed if the
+      # ghcr.io package stays private.
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: backend
           image: REGISTRY_PLACEHOLDER/gcoms-public-backend:TAG_PLACEHOLDER
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3001
           envFrom:
@@ -25,6 +38,23 @@ spec:
                 name: gamercoms-config
             - secretRef:
                 name: gamercoms-secrets
+          env:
+            # Sourced from the MongoDBCommunity operator's own generated
+            # Secret (k8s/13-mongo.yaml), not hand-filled in
+            # 02-secret.example.yaml -- the operator creates
+            # "<mongo CR name>-<user.name>-<user.db>" with this key once the
+            # replica set is up. Name below matches the CR as written
+            # (`mongo` / user `gamercoms` / db `gamercoms`); if any of those
+            # three ever change, this secretKeyRef must change with them.
+            # CONFIRM the exact secret name against `kubectl get secrets -n
+            # gamercoms` once the operator has actually reconciled -- this is
+            # the operator's documented naming convention, not something
+            # verified against a live cluster yet.
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-gamercoms-gamercoms
+                  key: connectionString.standard
           # Readiness checks Mongo (/health); liveness only confirms the
           # process is still accepting connections. Reusing /health for
           # liveness would restart every backend pod on a transient Mongo

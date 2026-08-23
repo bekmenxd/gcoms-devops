@@ -1,0 +1,76 @@
+# Nightly mongodump -> gzip -> Linode Object Storage (S3-compatible).
+#
+# There is no automated Mongo backup at all in the current VPS Docker
+# Compose setup -- this is a net-new safety net that comes with the move,
+# not a regression to preserve parity with. It's needed regardless of
+# single-pod vs. replica-set Mongo: a replica set protects against a node/pod
+# loss, not against a bad deploy, an accidental drop, or a bug that corrupts
+# data across all three replicas at once.
+#
+# Two containers instead of one: an initContainer (official `mongo` image,
+# already trusted elsewhere in this stack) runs mongodump into a shared
+# emptyDir, then the main container (official `amazon/aws-cli` image, which
+# talks to any S3-compatible endpoint via --endpoint-url, not just AWS)
+# uploads it. Deliberately not using a third-party all-in-one
+# "mongodb-backup-to-s3" image off Docker Hub for a job that touches
+# production credentials -- two well-known, independently-auditable images
+# beats one unverified one.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mongo-backup
+  namespace: gamercoms
+spec:
+  schedule: "0 3 * * *" # 03:00 UTC daily
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          # Explicit label (CronJob-spawned Job pods otherwise only get
+          # job-name/controller-uid) so k8s/15-networkpolicies.yaml can allow
+          # this pod, specifically, to reach Mongo on 27017.
+          labels:
+            app: mongo-backup
+        spec:
+          restartPolicy: OnFailure
+          volumes:
+            - name: dump
+              emptyDir: {}
+          initContainers:
+            - name: mongodump
+              image: mongo:7.0.14
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  mongodump --uri="$MONGODB_URI" --archive="/dump/gamercoms-$(date +%Y%m%d-%H%M%S).archive" --gzip
+              env:
+                - name: MONGODB_URI
+                  valueFrom:
+                    secretKeyRef:
+                      # Same operator-generated Secret the app pods read --
+                      # see the naming-convention caveat in 11-backend.yaml.
+                      name: mongo-gamercoms-gamercoms
+                      key: connectionString.standard
+              volumeMounts:
+                - name: dump
+                  mountPath: /dump
+          containers:
+            - name: upload
+              image: amazon/aws-cli:2.17.0
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  aws --endpoint-url="$MONGO_BACKUP_S3_ENDPOINT" s3 cp /dump/ "s3://$MONGO_BACKUP_S3_BUCKET/mongo/" --recursive
+              envFrom:
+                - configMapRef:
+                    name: gamercoms-config
+                - secretRef:
+                    name: mongo-backup-object-storage
+              volumeMounts:
+                - name: dump
+                  mountPath: /dump

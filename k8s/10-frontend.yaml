@@ -15,9 +15,25 @@ spec:
       labels:
         app: frontend
     spec:
+      # Matches dockerfile.prod's non-root `nextjs` user (uid/gid 1001) --
+      # belt-and-suspenders so a pod still refuses to run as root even if a
+      # future image change drops the Dockerfile's USER line by accident.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      # Only needed if the ghcr.io package is left private (the default for
+      # a package pushed via GITHUB_TOKEN from a private repo) -- skip this
+      # and the Secret it references if the package is made public instead.
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       containers:
         - name: frontend
           image: REGISTRY_PLACEHOLDER/gamercoms-web:TAG_PLACEHOLDER
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3000
           envFrom:

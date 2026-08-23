@@ -1,0 +1,109 @@
+# Ingress-only NetworkPolicies -- each policy restricts who can open a
+# connection *to* the selected pods; none of these touch egress, so outbound
+# calls (Discord API, RAWG, Object Storage, etc.) are unaffected. Kept
+# deliberately narrow in scope this way: locking down egress too needs
+# testing against every real outbound dependency, which isn't possible
+# without a live cluster, and getting it wrong silently breaks things like
+# the bot's Discord gateway connection or RAWG cache self-heal in a way
+# that's hard to diagnose. Ingress-only still closes the actual gap this was
+# written for -- nothing but backend/bot/the backup job can reach Mongo.
+#
+# Requires the cluster's CNI to enforce NetworkPolicy -- LKE's default CNI
+# (Calico) does. If policies stop being enforced after a cluster change,
+# check the CNI first.
+#
+# The `ingress-nginx` namespaceSelector below assumes the controller is
+# installed into a namespace literally labeled
+# kubernetes.io/metadata.name=ingress-nginx (the default for the standard
+# ingress-nginx Helm chart / manifest). Adjust if the real install differs --
+# not verified against a live cluster.
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-allow-ingress
+  namespace: gamercoms
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-allow-frontend-and-ingress
+  namespace: gamercoms
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        # Frontend's Server Components call the backend directly
+        # (BACKEND_API_URL), and the browser-side rewrite also proxies
+        # through it.
+        - podSelector:
+            matchLabels:
+              app: frontend
+        # api.gamercoms.com routes straight to backend (20-ingress.yaml),
+        # bypassing the frontend entirely.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3001
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bot-allow-backend-only
+  namespace: gamercoms
+spec:
+  podSelector:
+    matchLabels:
+      app: bot
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mongo-allow-app-and-backup-only
+  namespace: gamercoms
+spec:
+  podSelector:
+    matchLabels:
+      app: mongo
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+        - podSelector:
+            matchLabels:
+              app: bot
+        - podSelector:
+            matchLabels:
+              app: mongo-backup
+        # Replica set members replicating to each other.
+        - podSelector:
+            matchLabels:
+              app: mongo
+      ports:
+        - port: 27017
