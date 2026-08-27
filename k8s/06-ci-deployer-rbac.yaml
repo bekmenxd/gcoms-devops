@@ -1,0 +1,44 @@
+# Scoped identity for GitHub Actions deploy workflows -- deliberately NOT
+# the full-admin kubeconfig used for manual kubectl/helm work from the Pi.
+# CI only ever needs to change which image tag a Deployment runs and check
+# whether that rollout succeeded; it has no business being able to touch
+# Secrets, delete namespaces, or anything else the admin kubeconfig can do.
+# If a CI secret ever leaks, blast radius is "can redeploy the app tier,"
+# not "owns the cluster."
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-deployer
+  namespace: gamercoms
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ci-deployer
+  namespace: gamercoms
+rules:
+  # kubectl set image + kubectl rollout status/undo/history need exactly
+  # these three verbs on these three resource kinds, nothing more.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ci-deployer
+  namespace: gamercoms
+subjects:
+  - kind: ServiceAccount
+    name: ci-deployer
+    namespace: gamercoms
+roleRef:
+  kind: Role
+  name: ci-deployer
+  apiGroup: rbac.authorization.k8s.io
