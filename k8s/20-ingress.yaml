@@ -1,21 +1,32 @@
+# First environment stood up on this cluster is staging, not production --
+# staging.gamercoms.com / api.staging.gamercoms.com, not gamercoms.com /
+# api.gamercoms.com. Nested-subdomain pattern (api.staging.*, not
+# staging-api.*) chosen for consistency with the prod api.* convention --
+# flag if a different scheme is preferred. No www host here: unlike prod,
+# nothing redirects a bare staging domain to a www variant
+# (Gamercoms-web/src/middleware.ts's redirect is hardcoded to the exact host
+# `gamercoms.com`, so it doesn't fire for staging.gamercoms.com regardless --
+# confirmed by reading the middleware, not assumed).
+#
 # Replaces the host-level Nginx (SSL termination + gamercoms.com /
 # api.gamercoms.com routing) that today lives only on the live server's
-# /etc/nginx/sites-available -- NOT in this repo. Pull the real config off
-# the server to confirm nothing beyond plain reverse-proxying is happening
-# there before treating this as a complete replacement (see k8s/README.md).
+# /etc/nginx/sites-available -- NOT in this repo, and not what this file
+# targets anyway now that it's staging-first. Once staging is verified
+# working, a second Ingress (or this one extended) covers the real
+# gamercoms.com/api.gamercoms.com cutover -- pull the real prod Nginx config
+# off the server before treating THAT as a complete replacement.
 #
 # Assumes the ingress-nginx controller (`ingressClassName: nginx`) and
 # cert-manager with a ClusterIssuer named `letsencrypt-prod` -- swap both if
 # the cluster uses something else; neither is a code decision I can make for
-# you.
-#
-# The bare-domain -> www redirect is NOT duplicated here: it's already
-# handled at the application level in Gamercoms-web/src/middleware.ts, so
-# both hosts below simply route to the frontend and the app does the 308.
+# you. Consider a `letsencrypt-staging` ClusterIssuer for this Ingress while
+# still debugging DNS/ingress routing -- Let's Encrypt's production CA has a
+# real per-domain rate limit that repeated failed attempts can burn through;
+# switch to `letsencrypt-prod` once cert issuance is confirmed working.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: gamercoms
+  name: gamercoms-staging
   namespace: gamercoms
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
@@ -33,14 +44,13 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
-        - gamercoms.com
-        - www.gamercoms.com
-      secretName: gamercoms-web-tls
+        - staging.gamercoms.com
+      secretName: gamercoms-web-staging-tls
     - hosts:
-        - api.gamercoms.com
-      secretName: gamercoms-api-tls
+        - api.staging.gamercoms.com
+      secretName: gamercoms-api-staging-tls
   rules:
-    - host: gamercoms.com
+    - host: staging.gamercoms.com
       http:
         paths:
           - path: /
@@ -50,17 +60,7 @@ spec:
                 name: frontend
                 port:
                   number: 3000
-    - host: www.gamercoms.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: frontend
-                port:
-                  number: 3000
-    - host: api.gamercoms.com
+    - host: api.staging.gamercoms.com
       http:
         paths:
           - path: /

@@ -27,7 +27,7 @@ option. See `13-mongo.yaml` for the full reasoning.
 | `13-mongo.yaml` | `MongoDBCommunity` custom resource -- 3-member self-hosted replica set |
 | `14-mongo-backup-cronjob.yaml` | Nightly `mongodump` -> Linode Object Storage (S3-compatible) |
 | `15-networkpolicies.yaml` | Ingress-only NetworkPolicies -- only backend/bot/the backup job can reach Mongo, etc. |
-| `20-ingress.yaml` | Routes `gamercoms.com` / `www.gamercoms.com` / `api.gamercoms.com`, with rate limiting |
+| `20-ingress.yaml` | Routes `staging.gamercoms.com` / `api.staging.gamercoms.com` (first environment on this cluster is staging, not prod), with rate limiting |
 
 Apply in filename order (`kubectl apply -f k8s/`) once the placeholders below
 are filled in -- the numeric prefixes exist so that ordering is unambiguous

@@ -13,7 +13,10 @@ data:
   # Service DNS within the same namespace, no other change needed.
   BOT_API_URL: "http://bot:3000"
   BACKEND_API_URL: "http://backend:3001"
-  FRONTEND_URL: "https://www.gamercoms.com"
+  # Staging environment -- this is the first thing stood up on the cluster,
+  # not a production cutover. Swap to https://www.gamercoms.com when/if this
+  # ConfigMap is reused for a real prod deploy later.
+  FRONTEND_URL: "https://staging.gamercoms.com"
 
   # Bot's own listen port (read via process.env.PORT).
   PORT: "3000"
