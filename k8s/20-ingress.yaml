@@ -29,7 +29,7 @@ metadata:
   name: gamercoms-staging
   namespace: gamercoms
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/cluster-issuer: letsencrypt-staging
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     # Free alternative to a paid WAF/DDoS product (checked Akamai's own App &
     # API Protector -- enterprise/quote-based pricing, not self-serve, not

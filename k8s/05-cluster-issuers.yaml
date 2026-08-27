@@ -1,0 +1,44 @@
+# cert-manager itself is a cluster-wide addon (installed via Helm, not
+# tracked here -- same convention as ingress-nginx, the MCK operator, and
+# Sealed Secrets). These ClusterIssuers ARE tracked, though: unlike the
+# controller install, they carry environment-specific config (the ACME
+# account email, which CA) that should be reproducible, not re-typed by hand
+# each time.
+#
+# Two issuers, not one: `letsencrypt-staging` first while DNS/ingress routing
+# is still being verified (its certs aren't browser-trusted, but issuance is
+# unlimited-ish and doesn't touch Let's Encrypt's real rate limits) -- point
+# `20-ingress.yaml`'s cert-manager.io/cluster-issuer annotation at it during
+# that phase. Switch to `letsencrypt-prod` only once a staging cert has
+# actually issued successfully, since the production CA's per-domain rate
+# limit is real and repeated failed attempts during debugging can burn
+# through it.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: linusbeck30@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: linusbeck30@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: nginx
