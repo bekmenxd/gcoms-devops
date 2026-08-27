@@ -7,7 +7,20 @@
 # installed rather than included here. Install it once, before applying this
 # file:
 #   helm repo add mongodb https://mongodb.github.io/helm-charts
-#   helm install community-operator mongodb/community-operator
+#   helm install mongodb-kubernetes-operator mongodb/mongodb-kubernetes \
+#     --namespace gamercoms
+#
+# (Corrected 2026-08-27 after actually installing it against the staging
+# cluster, in this order: (1) the chart is `mongodb/mongodb-kubernetes`, not
+# `mongodb/community-operator` -- that name doesn't exist in the repo; (2)
+# the CRD this file targets, `mongodbcommunity.mongodb.com/v1`
+# `MongoDBCommunity`, is exactly what this chart installs, no change needed
+# there; (3) the operator only watches `MongoDBCommunity` resources in its
+# OWN namespace by default (`WATCH_NAMESPACE` mirrors wherever it's
+# deployed) -- installing it into a separate `mongodb-operator` namespace
+# left this `mongo` resource in `gamercoms` un-reconciled with zero events,
+# no error, just silently nothing happening. Fix: install the operator into
+# `gamercoms` itself, per the command above, not a separate namespace.)
 #
 # Why self-hosted at all instead of a managed DB: checked Akamai's own
 # Managed Database service first -- it only supports MySQL and PostgreSQL,
