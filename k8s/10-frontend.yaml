@@ -30,6 +30,7 @@ spec:
       containers:
         - name: frontend
           image: REGISTRY_PLACEHOLDER/gamercoms-web:TAG_PLACEHOLDER
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

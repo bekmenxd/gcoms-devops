@@ -27,6 +27,7 @@ spec:
       containers:
         - name: backend
           image: REGISTRY_PLACEHOLDER/gcoms-public-backend:TAG_PLACEHOLDER
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

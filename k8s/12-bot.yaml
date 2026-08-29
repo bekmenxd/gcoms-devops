@@ -40,6 +40,7 @@ spec:
       containers:
         - name: bot
           image: REGISTRY_PLACEHOLDER/gcoms-public-bot:TAG_PLACEHOLDER
+          imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
