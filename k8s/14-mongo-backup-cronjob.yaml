@@ -15,6 +15,13 @@
 # "mongodb-backup-to-s3" image off Docker Hub for a job that touches
 # production credentials -- two well-known, independently-auditable images
 # beats one unverified one.
+#
+# MONGO_BACKUP_S3_BUCKET (k8s/01-configmap.yaml) is "gamerstore" -- a bucket
+# shared with other, unrelated projects on the same Linode account (the
+# access key we were given is scoped to that specific pre-existing bucket,
+# not a Gamercoms-only one). Uploads go under a gamercoms/mongo/ prefix
+# specifically so this never collides with whatever else lives in that
+# bucket's root or other prefixes.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -65,7 +72,7 @@ spec:
                 - -c
                 - |
                   set -eu
-                  aws --endpoint-url="$MONGO_BACKUP_S3_ENDPOINT" s3 cp /dump/ "s3://$MONGO_BACKUP_S3_BUCKET/mongo/" --recursive
+                  aws --endpoint-url="$MONGO_BACKUP_S3_ENDPOINT" s3 cp /dump/ "s3://$MONGO_BACKUP_S3_BUCKET/gamercoms/mongo/" --recursive
               envFrom:
                 - configMapRef:
                     name: gamercoms-config

@@ -22,7 +22,7 @@ data:
   PORT: "3000"
 
   # Public Discord application ID -- not secret, but repo-specific.
-  DISCORD_CLIENT_ID: "REPLACE_ME"
+  DISCORD_CLIENT_ID: "1379923688094302339"
 
   # Weekly filled-queues leaderboard job (bot). Values below mirror
   # gcoms-public-bot/.env.example -- confirm the guild/channel are correct for
@@ -40,8 +40,12 @@ data:
   # Nightly Mongo backup target (k8s/14-mongo-backup-cronjob.yaml). Not
   # secret by itself -- pair with the mongo-backup-object-storage Secret
   # (02-secret.example.yaml) for the actual access keys.
-  MONGO_BACKUP_S3_BUCKET: "REPLACE_ME"
-  MONGO_BACKUP_S3_ENDPOINT: "https://REPLACE_ME.linodeobjects.com"
+  # "gamerstore" is shared with other, unrelated projects on this account --
+  # the access key is scoped to this specific pre-existing bucket, not a
+  # dedicated one. See k8s/14-mongo-backup-cronjob.yaml for the gamercoms/
+  # prefix this is uploaded under.
+  MONGO_BACKUP_S3_BUCKET: "gamerstore"
+  MONGO_BACKUP_S3_ENDPOINT: "https://se-sto-1.linodeobjects.com"
 
   # --- Build-time-baked, NOT just runtime config -----------------------------
   # These three are compiled into the frontend image at `next build` time
@@ -51,5 +55,5 @@ data:
   # --build-arg, or the baked-in values will be wrong/missing regardless of
   # what's in this ConfigMap. See Gamercoms-web/CLAUDE.md notes on
   # BACKEND_API_URL for the same gotcha already documented there.
-  NEXT_PUBLIC_DISCORD_CLIENT_ID: "REPLACE_ME"
-  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "REPLACE_ME"
+  NEXT_PUBLIC_DISCORD_CLIENT_ID: "1379923688094302339"
+  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1379923688094302339"
