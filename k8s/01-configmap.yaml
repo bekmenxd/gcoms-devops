@@ -24,11 +24,15 @@ data:
   # Public Discord application ID -- not secret, but repo-specific.
   DISCORD_CLIENT_ID: "1379923688094302339"
 
-  # Weekly filled-queues leaderboard job (bot). Values below mirror
-  # gcoms-public-bot/.env.example -- confirm the guild/channel are correct for
-  # this environment before applying.
-  WEEKLY_LEADERBOARD_GUILD_ID: "REPLACE_ME"
-  WEEKLY_LEADERBOARD_CHANNEL_ID: "REPLACE_ME"
+  # Weekly filled-queues leaderboard job (bot). GUILD_ID is "GamerComs
+  # STAGING" (see gcoms-dir/CLAUDE.md's known-guilds list) -- these were
+  # left as REPLACE_ME long enough to actually cause a live error (the
+  # bot's code treats a truthy "REPLACE_ME" string as a real ID rather
+  # than falling back to its own defaults, so it was trying to post to a
+  # guild literally named "REPLACE_ME" and failing) -- caught via the new
+  # Fluent Bit -> Grafana Cloud log pipeline.
+  WEEKLY_LEADERBOARD_GUILD_ID: "1336405641673183254"
+  WEEKLY_LEADERBOARD_CHANNEL_ID: "1501505980469612644"
   WEEKLY_LEADERBOARD_TIMEZONE: "Europe/Stockholm"
   WEEKLY_LEADERBOARD_POST_DAY: "0"
   WEEKLY_LEADERBOARD_POST_HOUR: "19"
