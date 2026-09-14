@@ -382,7 +382,10 @@
       `<span>guild <b class="mono">loadtest-guild-1</b></span>`;
 
     const users = data.users || [];
-    document.getElementById("userCount").textContent = users.length + " simulated";
+    const totalUsers = data.usersSampledOf || data.config?.userCount || users.length;
+    document.getElementById("userCount").textContent = data.usersSampledOf
+      ? `showing ${users.length} of ${totalUsers}`
+      : users.length + " simulated";
     const rows = document.getElementById("userRows");
 
     if (users.length === 0) {

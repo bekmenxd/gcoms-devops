@@ -165,7 +165,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: backend-loadtest
-          image: ghcr.io/bekmenxd/gcoms-public-backend:loadtest-75e4bf8
+          image: ghcr.io/bekmenxd/gcoms-public-backend:loadtest-4d35c6a
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false

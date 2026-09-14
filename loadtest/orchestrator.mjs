@@ -21,6 +21,23 @@
 // a published artifact).
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { Agent, setGlobalDispatcher } from "undici";
+
+// Node's built-in fetch is backed by undici, whose default Agent caps
+// concurrent connections per origin -- at high simulated-user counts this
+// would silently queue requests client-side, which looks identical to "the
+// server is struggling" (rising latency) even though the server never saw
+// the request yet. Explicit high limits here so a ramp to thousands of
+// concurrent users measures the real staging deployment, not this test
+// harness's own default throttling.
+setGlobalDispatcher(
+  new Agent({
+    connections: 4096,
+    pipelining: 0,
+    keepAliveTimeout: 30_000,
+    keepAliveMaxTimeout: 30_000,
+  }),
+);
 
 const BASE_URL = "https://staging.gamercoms.com/loadtest-api";
 const GUILD_ID = "loadtest-guild-1";
