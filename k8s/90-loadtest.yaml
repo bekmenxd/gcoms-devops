@@ -79,7 +79,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: bot-loadtest
-          image: ghcr.io/bekmenxd/gcoms-public-bot:loadtest-0af4822
+          image: ghcr.io/bekmenxd/gcoms-public-bot:loadtest-278d876
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
@@ -95,6 +95,11 @@ spec:
           env:
             - name: LOAD_TEST_MODE
               value: "true"
+            # Testing whether Mongo's connection pool (10/instance default)
+            # was the residual bottleneck after the usersInQueue.userID
+            # index fix -- see gcoms-dir/CLAUDE.md's load-testing note.
+            - name: MONGO_MAX_POOL_SIZE
+              value: "40"
             - name: MONGODB_URI
               valueFrom:
                 secretKeyRef:
@@ -172,7 +177,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: backend-loadtest
-          image: ghcr.io/bekmenxd/gcoms-public-backend:loadtest-4d35c6a
+          image: ghcr.io/bekmenxd/gcoms-public-backend:loadtest-ca981b3
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
@@ -192,6 +197,11 @@ spec:
             # load-test bot, never the real one.
             - name: BOT_API_URL
               value: http://bot-loadtest:3000
+            # Testing whether Mongo's connection pool (10/instance default)
+            # was the residual bottleneck after the usersInQueue.userID
+            # index fix -- see gcoms-dir/CLAUDE.md's load-testing note.
+            - name: MONGO_MAX_POOL_SIZE
+              value: "40"
             - name: MONGODB_URI
               valueFrom:
                 secretKeyRef:
