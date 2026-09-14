@@ -1,0 +1,448 @@
+<title>Loadtest Console</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #eef2f5;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --border: #d7dfe5;
+    --text: #16202a;
+    --text-dim: #5b6b78;
+    --text-faint: #8695a1;
+    --accent: #9c6b0a;
+    --accent-soft: #f4e6cc;
+    --good: #1f8a4c;
+    --good-soft: #dcf3e5;
+    --warn: #a5690a;
+    --warn-soft: #f6e6cd;
+    --bad: #c23434;
+    --bad-soft: #fbdede;
+    --neutral-soft: #e7ecf0;
+    --row-hover: #f4f7f9;
+    --shadow: 0 1px 2px rgba(20, 30, 40, 0.06), 0 8px 24px -12px rgba(20, 30, 40, 0.12);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1720;
+      --surface: #16212b;
+      --surface-raised: #1b2833;
+      --border: #2a3846;
+      --text: #e8eef3;
+      --text-dim: #96a7b4;
+      --text-faint: #6c7c88;
+      --accent: #f2b84b;
+      --accent-soft: #3a2e13;
+      --good: #4ade80;
+      --good-soft: #163823;
+      --warn: #fbbf24;
+      --warn-soft: #3a2e0f;
+      --bad: #f87171;
+      --bad-soft: #3a1717;
+      --neutral-soft: #23303b;
+      --row-hover: #1c2831;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0f1720;
+    --surface: #16212b;
+    --surface-raised: #1b2833;
+    --border: #2a3846;
+    --text: #e8eef3;
+    --text-dim: #96a7b4;
+    --text-faint: #6c7c88;
+    --accent: #f2b84b;
+    --accent-soft: #3a2e13;
+    --good: #4ade80;
+    --good-soft: #163823;
+    --warn: #fbbf24;
+    --warn-soft: #3a2e0f;
+    --bad: #f87171;
+    --bad-soft: #3a1717;
+    --neutral-soft: #23303b;
+    --row-hover: #1c2831;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    padding-inline: 20px;
+    padding-block: 28px 60px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  h1, h2, .num { font-family: "Manrope", ui-sans-serif, system-ui, sans-serif; }
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+
+  header.top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px 20px;
+    margin-bottom: 22px;
+  }
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 .accent { color: var(--accent); }
+  .top-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .pill .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: currentColor;
+    flex: none;
+  }
+  .pill.running { background: var(--good-soft); color: var(--good); }
+  .pill.running .dot { animation: pulse 1.6s ease-in-out infinite; }
+  .pill.finished { background: var(--neutral-soft); color: var(--text-dim); }
+  .pill.idle-state { background: var(--neutral-soft); color: var(--text-dim); }
+  .pill.creating, .pill.joining, .pill.closing, .pill.leaving { background: var(--warn-soft); color: var(--warn); }
+  .pill.reserved { background: var(--accent-soft); color: var(--accent); }
+  .pill.confirmed { background: var(--good-soft); color: var(--good); }
+  .pill.done { background: var(--neutral-soft); color: var(--text-faint); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pill.running .dot { animation: none; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .tile .label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+  }
+  .tile .num {
+    font-size: 1.7rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+  }
+  .tile .num small { font-size: 0.9rem; font-weight: 600; color: var(--text-dim); }
+  .tile.accent-tile .num { color: var(--accent); }
+  .tile.bad-tile .num { color: var(--bad); }
+
+  .config-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    align-items: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 16px;
+    margin-bottom: 22px;
+  }
+  .config-strip b { color: var(--text); font-weight: 600; }
+  .config-strip .sep { color: var(--border); }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 14px 18px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-head h2 { font-size: 0.95rem; font-weight: 700; margin: 0; }
+  .panel-head .count { color: var(--text-faint); font-size: 0.8rem; }
+
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 640px; }
+  thead th {
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 11px 18px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--row-hover); }
+  td.id { color: var(--text-dim); }
+  td.action { color: var(--text-dim); }
+  td.updated { color: var(--text-faint); font-size: 0.78rem; }
+  .status-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.78rem;
+  }
+  .status-chip.s2 { background: var(--good-soft); color: var(--good); }
+  .status-chip.s4 { background: var(--bad-soft); color: var(--bad); }
+  .status-chip.s0 { background: var(--neutral-soft); color: var(--text-faint); }
+
+  .empty-state {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-dim);
+  }
+  .empty-state .glyph {
+    font-size: 1.8rem;
+    margin-bottom: 10px;
+    color: var(--accent);
+  }
+  .empty-state h3 { margin: 0 0 6px; color: var(--text); font-size: 1rem; }
+  .empty-state p { margin: 0 auto; max-width: 46ch; font-size: 0.88rem; line-height: 1.5; }
+
+  footer {
+    margin-top: 22px;
+    color: var(--text-faint);
+    font-size: 0.78rem;
+    text-align: center;
+  }
+  footer code { background: var(--neutral-soft); padding: 1px 6px; border-radius: 5px; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>Load<span class="accent">test</span> Console</h1>
+    <div class="top-meta">
+      <span id="statusPill" class="pill finished"><span class="dot"></span><span id="statusText">Loading…</span></span>
+      <span id="updatedAgo">—</span>
+    </div>
+  </header>
+
+  <div class="tiles">
+    <div class="tile accent-tile">
+      <div class="label">Requests / sec</div>
+      <div class="num"><span id="tRps">—</span></div>
+    </div>
+    <div class="tile" id="errTile">
+      <div class="label">Error rate</div>
+      <div class="num"><span id="tErr">—</span><small>%</small></div>
+    </div>
+    <div class="tile">
+      <div class="label">Total requests</div>
+      <div class="num"><span id="tReq">—</span></div>
+    </div>
+    <div class="tile">
+      <div class="label">Open queues</div>
+      <div class="num"><span id="tQueues">—</span></div>
+    </div>
+    <div class="tile">
+      <div class="label">Elapsed / total</div>
+      <div class="num"><span id="tElapsed">—</span></div>
+    </div>
+  </div>
+
+  <div class="config-strip" id="configStrip">—</div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Simulated users</h2>
+      <span class="count" id="userCount">—</span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Discord ID</th>
+            <th>State</th>
+            <th>Action</th>
+            <th>Queue</th>
+            <th>Last status</th>
+            <th>Latency</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody id="userRows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    Reads <code>loadtest/state</code> from this artifact's shared database, pushed by Claude while a run is active. No test currently drives this page automatically — request a run to see it update live.
+  </footer>
+</div>
+
+<script>
+  function fmtMs(ms) {
+    if (ms == null) return "—";
+    const s = Math.round(ms / 1000);
+    if (s < 60) return s + "s";
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return m + "m" + (rem ? " " + rem + "s" : "");
+  }
+  function agoText(ts) {
+    if (!ts) return "—";
+    const diff = Date.now() - ts;
+    if (diff < 0) return "just now";
+    const s = Math.round(diff / 1000);
+    if (s < 5) return "just now";
+    if (s < 60) return s + "s ago";
+    const m = Math.round(s / 60);
+    return m + "m ago";
+  }
+  function statusChipClass(status) {
+    if (!status) return "s0";
+    if (status < 300) return "s2";
+    return "s4";
+  }
+  function statePillClass(state) {
+    const known = ["idle", "creating", "joining", "reserved", "confirmed", "closing", "leaving", "done"];
+    return known.includes(state) ? state.replace("idle", "idle-state") : "idle-state";
+  }
+
+  function render(data) {
+    if (!data) {
+      document.getElementById("statusText").textContent = "No data yet";
+      document.getElementById("statusPill").className = "pill finished";
+      return;
+    }
+    const running = data.remainingMs > 0;
+    const pill = document.getElementById("statusPill");
+    pill.className = "pill " + (running ? "running" : "finished");
+    document.getElementById("statusText").textContent = running ? "Run in progress" : "Last run finished";
+    document.getElementById("updatedAgo").textContent = data.updatedAt
+      ? "updated " + agoText(new Date(data.updatedAt).getTime())
+      : "";
+
+    const agg = data.aggregate || {};
+    document.getElementById("tRps").textContent = agg.rps != null ? agg.rps.toFixed(1) : "—";
+    document.getElementById("tErr").textContent = agg.errorRatePct != null ? agg.errorRatePct.toFixed(1) : "—";
+    document.getElementById("errTile").className = "tile" + (agg.errorRatePct > 5 ? " bad-tile" : "");
+    document.getElementById("tReq").textContent = agg.requests != null ? agg.requests : "—";
+    document.getElementById("tQueues").textContent = agg.openQueues != null ? agg.openQueues : "—";
+    document.getElementById("tElapsed").textContent =
+      fmtMs(data.elapsedMs) + " / " + fmtMs((data.elapsedMs || 0) + (data.remainingMs || 0));
+
+    const cfg = data.config || {};
+    document.getElementById("configStrip").innerHTML =
+      `<span><b>${cfg.userCount ?? "—"}</b> users</span><span class="sep">·</span>` +
+      `<span>think <b>${cfg.thinkMinMs ? Math.round(cfg.thinkMinMs / 1000) : "—"}–${cfg.thinkMaxMs ? Math.round(cfg.thinkMaxMs / 1000) : "—"}s</b></span><span class="sep">·</span>` +
+      `<span><b>${cfg.createRatio != null ? Math.round(cfg.createRatio * 100) : "—"}%</b> create ratio</span><span class="sep">·</span>` +
+      `<span>guild <b class="mono">loadtest-guild-1</b></span>`;
+
+    const users = data.users || [];
+    document.getElementById("userCount").textContent = users.length + " simulated";
+    const rows = document.getElementById("userRows");
+
+    if (users.length === 0) {
+      rows.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="glyph">◔</div><h3>No simulated users yet</h3><p>Rows appear here once an orchestrator run reports its first snapshot.</p></div></td></tr>`;
+      return;
+    }
+
+    rows.innerHTML = users
+      .map((u) => {
+        const shortId = u.discordId ? u.discordId.replace(/^loadtest-/, "") : "—";
+        return `<tr>
+          <td class="id mono">${shortId}</td>
+          <td><span class="pill ${statePillClass(u.state)}"><span class="dot"></span>${u.state || "—"}</span></td>
+          <td class="action">${u.action || "—"}</td>
+          <td class="id mono">${u.queueId ? u.queueId.slice(-8) : "—"}</td>
+          <td><span class="status-chip ${statusChipClass(u.lastStatus)}">${u.lastStatus || "—"}</span></td>
+          <td class="mono">${u.lastLatencyMs != null ? u.lastLatencyMs + "ms" : "—"}</td>
+          <td class="updated">${agoText(u.updatedAt)}</td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  // Real data from the first verification run of this tool (2026-09-14): 5
+  // seeded users, a short smoke-scale run -- shown here so the page opens on
+  // real history rather than an empty shell. A subsequent real run overwrites
+  // this via Claude pushing to loadtest/state.
+  const LAST_KNOWN_RUN = {
+    updatedAt: "2026-09-14T06:08:03.631Z",
+    config: { durationMs: 90000, thinkMinMs: 8000, thinkMaxMs: 20000, createRatio: 0.5, userCount: 5 },
+    elapsedMs: 100763,
+    remainingMs: 0,
+    aggregate: { requests: 38, errors: 14, errorRatePct: 36.8, rps: 0.4, openQueues: 0 },
+    users: [
+      { discordId: "loadtest-1789365192832-8", state: "done", action: null, queueId: null, updatedAt: 1789366080088, lastStatus: 200, lastLatencyMs: 74 },
+      { discordId: "loadtest-1789365192832-9", state: "done", action: null, queueId: null, updatedAt: 1789366074603, lastStatus: 429, lastLatencyMs: 33 },
+      { discordId: "loadtest-1789365192832-10", state: "done", action: null, queueId: null, updatedAt: 1789366073417, lastStatus: 200, lastLatencyMs: 85 },
+      { discordId: "loadtest-1789365192832-11", state: "done", action: null, queueId: null, updatedAt: 1789366083631, lastStatus: 200, lastLatencyMs: 125 },
+      { discordId: "loadtest-1789365192832-12", state: "done", action: null, queueId: null, updatedAt: 1789366082440, lastStatus: 200, lastLatencyMs: 84 },
+    ],
+  };
+
+  render(LAST_KNOWN_RUN);
+
+  async function boot() {
+    const claude = window.claude;
+    if (!claude) return;
+    const db = await claude.use("db");
+    if (!db) return;
+    db.doc("loadtest/state").onSnapshot(
+      (snap) => {
+        if (snap.exists) render(snap.data());
+      },
+      () => {},
+    );
+  }
+  boot();
+
+  setInterval(() => {
+    const el = document.getElementById("updatedAgo");
+    // Re-render the relative "updated ago" text between snapshots too.
+  }, 15000);
+</script>
