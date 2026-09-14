@@ -1,0 +1,328 @@
+# Parallel, disposable load-test resources -- NEVER applied as part of the
+# normal numbered k8s/ apply sequence (hence "90-", outside the real
+# 00-20 order, and deliberately not referenced from k8s/README.md).
+# Applied and deleted manually, by hand, only for a load-test run:
+#
+#   kubectl apply -f k8s/90-loadtest.yaml
+#   ... run the test ...
+#   kubectl delete -f k8s/90-loadtest.yaml
+#
+# (equivalently: `kubectl delete deployment,service,networkpolicy,ingress
+# -n gamercoms -l loadtest=true` -- everything below carries that label)
+#
+# Design, see gcoms-dir/CLAUDE.md's load-testing note for the full reasoning:
+#   - Runs ALONGSIDE the real bot/backend/frontend Deployments, never
+#     replacing them -- the real bot's Discord gateway session and any real
+#     (if minimal) staging traffic are untouched.
+#   - Shares the REAL staging Mongo (the actual resource under test) via the
+#     same operator-generated secret the real Deployments use.
+#   - bot-loadtest runs the images built from the `loadtest/dry-run-mode`
+#     branches (gcoms-public-bot / gcoms-public-backend), tagged
+#     `loadtest-<shortsha>` in ghcr.io -- LOAD_TEST_MODE=true skips
+#     client.login() entirely (no gateway connection attempted at all, so
+#     zero risk of colliding with the real bot's singleton session).
+#   - Routed through the REAL ingress-nginx/NodeBalancer via a SEPARATE
+#     Ingress object (not editing the real `gamercoms-staging` Ingress) on a
+#     new path off the already Cloudflare-covered `staging.gamercoms.com`
+#     host -- sidesteps the api.staging.gamercoms.com Cloudflare edge-cert
+#     gap entirely. Deliberately a SEPARATE Ingress resource rather than a
+#     new path on the existing one for a second reason found while building
+#     this: the real Ingress carries `nginx.ingress.kubernetes.io/limit-rps:
+#     "20"` (burst x3) -- a real per-source-IP rate limit that would throttle
+#     our own orchestrator's traffic before it ever reached backend-loadtest
+#     if we shared that Ingress object. ingress-nginx's rate-limit
+#     annotations are scoped per Ingress resource, so a separate object with
+#     no such annotation is genuinely unthrottled, without touching the real
+#     one's config at all.
+#   - Needs its OWN NetworkPolicies: the real ones are labelSelector-scoped
+#     (app: backend / app: bot / app: mongo) and would otherwise block these
+#     pods from reaching Mongo, or bot-loadtest from backend-loadtest,
+#     entirely. Deliberately ADDITIVE new policy objects (NetworkPolicies
+#     targeting the same pods are unioned, not replaced) rather than editing
+#     the real ones -- and deliberately a DIFFERENT `app` label
+#     (bot-loadtest / backend-loadtest, not bot / backend) so the real
+#     bot/backend Services' selectors can never accidentally start routing
+#     to a load-test pod.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot-loadtest
+  namespace: gamercoms
+  labels:
+    app: bot-loadtest
+    loadtest: "true"
+spec:
+  # Fixed at 1 for Phase 1 (matches the real bot's hard single-instance
+  # constraint -- even though bot-loadtest itself has no gateway session to
+  # collide over, testing at the same replica count the real bot can ever
+  # actually run at is what makes the result meaningful). Scaled manually
+  # (kubectl scale) if Phase 2 ever wants to explore beyond that as a
+  # hypothetical -- not because production could ever use it.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: bot-loadtest
+  template:
+    metadata:
+      labels:
+        app: bot-loadtest
+        loadtest: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: bot-loadtest
+          image: ghcr.io/bekmenxd/gcoms-public-bot:loadtest-0af4822
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: gamercoms-config
+            - secretRef:
+                name: gamercoms-secrets
+          env:
+            - name: LOAD_TEST_MODE
+              value: "true"
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-gamercoms-gamercoms
+                  key: connectionString.standard
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "192Mi"
+            limits:
+              cpu: "500m"
+              memory: "384Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bot-loadtest
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+spec:
+  selector:
+    app: bot-loadtest
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-loadtest
+  namespace: gamercoms
+  labels:
+    app: backend-loadtest
+    loadtest: "true"
+spec:
+  # Phase 1 baseline: matches the real backend HPA's minReplicas (2) -- "today's
+  # exact deployed capacity, no scaling." Phase 2 scales this manually
+  # (kubectl scale deployment/backend-loadtest --replicas=N) one step at a
+  # time up toward the real HPA's max (6), recording throughput at each step.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend-loadtest
+  template:
+    metadata:
+      labels:
+        app: backend-loadtest
+        loadtest: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: backend-loadtest
+          image: ghcr.io/bekmenxd/gcoms-public-backend:loadtest-75e4bf8
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3001
+          envFrom:
+            - configMapRef:
+                name: gamercoms-config
+            - secretRef:
+                name: gamercoms-secrets
+          env:
+            - name: LOAD_TEST_MODE
+              value: "true"
+            # Overrides the ConfigMap's http://bot:3000 -- must talk to the
+            # load-test bot, never the real one.
+            - name: BOT_API_URL
+              value: http://bot-loadtest:3000
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-gamercoms-gamercoms
+                  key: connectionString.standard
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "192Mi"
+            limits:
+              cpu: "750m"
+              memory: "384Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-loadtest
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+spec:
+  selector:
+    app: backend-loadtest
+  ports:
+    - port: 3001
+      targetPort: 3001
+---
+# Additive: Mongo already has a policy from the real manifests
+# (mongo-allow-app-and-backup-only); NetworkPolicies targeting the same pods
+# are unioned across objects, not replaced, so this only ADDS the
+# loadtest-labeled pods to what's allowed -- the real policy is untouched.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mongo-allow-loadtest
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app: mongo
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: bot-loadtest
+        - podSelector:
+            matchLabels:
+              app: backend-loadtest
+      ports:
+        - port: 27017
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bot-loadtest-allow-backend-loadtest
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app: bot-loadtest
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-loadtest
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-loadtest-allow-ingress
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app: backend-loadtest
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3001
+---
+# Separate Ingress object (see the file-level comment for why: sidesteps the
+# real Ingress's 20rps rate-limit annotation and the api.staging Cloudflare
+# edge-cert gap in one move, at zero risk to the real Ingress object since
+# nothing about it is edited). Same host as the real, working
+# staging.gamercoms.com -- Cloudflare already has a valid edge cert for it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gamercoms-staging-loadtest
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Deliberately NO limit-rps/limit-burst-multiplier annotations here --
+    # this test exists specifically to find the real backend/Mongo ceiling,
+    # not nginx's configured guard-rail for real user traffic.
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - staging.gamercoms.com
+      secretName: gamercoms-web-staging-tls
+  rules:
+    - host: staging.gamercoms.com
+      http:
+        paths:
+          - path: /loadtest-api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: backend-loadtest
+                port:
+                  number: 3001
