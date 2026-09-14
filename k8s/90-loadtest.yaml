@@ -113,11 +113,18 @@ spec:
             periodSeconds: 20
             failureThreshold: 3
           resources:
+            # Bumped 3x from the real bot's 250m/500m (2026-09-14) to test
+            # whether bot-loadtest's CPU limit -- not replica count, which is
+            # permanently fixed at 1 by Discord's gateway constraint -- was
+            # really the Step E (3000 users) ceiling. Node allocatable is
+            # 1930m per node, so this still leaves headroom. NOT applied to
+            # the real bot's k8s/12-bot.yaml -- that's a separate, deliberate
+            # decision to make only after this confirms it actually helps.
             requests:
-              cpu: "250m"
+              cpu: "500m"
               memory: "192Mi"
             limits:
-              cpu: "500m"
+              cpu: "1500m"
               memory: "384Mi"
 ---
 apiVersion: v1
