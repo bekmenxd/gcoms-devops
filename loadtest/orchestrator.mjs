@@ -53,6 +53,8 @@ function pick(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+const ROOM_POLL_INTERVAL_MS = 5000; // matches the real frontend's room-page poll cadence
+
 // ---- shared state across all simulated users --------------------------------
 // Queues this run itself created -- the pool users pick from to join each
 // other's queues. Not the real public directory (which may carry unrelated
@@ -107,6 +109,27 @@ async function call(method, path, token, body) {
 function setUserState(discordId, patch) {
   const existing = userStates.get(discordId) || { discordId };
   userStates.set(discordId, { ...existing, ...patch, updatedAt: Date.now() });
+}
+
+// While a user is reserved/confirmed and "watching" their queue, the real
+// frontend room page polls GET /:id/room every 5s (see gcoms-dir/CLAUDE.md)
+// -- this is the dominant source of real aggregate request volume, far more
+// than the sparse create/join actions themselves. Without modeling it, a
+// "max concurrent users" number from this tool would be misleadingly
+// optimistic. Polls for durationMs total, at the real cadence.
+async function playWhilePolling(queueId, token, durationMs, discordId) {
+  const until = Date.now() + durationMs;
+  while (Date.now() < until) {
+    const wait = Math.min(ROOM_POLL_INTERVAL_MS, until - Date.now());
+    if (wait <= 0) break;
+    await sleep(wait);
+    const { status, latencyMs } = await call(
+      "GET",
+      `/api/v1/queues/${queueId}/room`,
+      token,
+    );
+    setUserState(discordId, { lastStatus: status, lastLatencyMs: latencyMs });
+  }
 }
 
 function writeSnapshot() {
@@ -189,8 +212,11 @@ async function runUser(user, endTime) {
         const q = openQueues.get(queueId);
         if (q) q.currentUsers++;
 
-        // Play for a while, then close it (only the owner can).
-        await sleep(randomBetween(THINK_MIN_MS, THINK_MAX_MS));
+        // Play for a while (polling the room page like a real host watching
+        // their queue fill), then close it (only the owner can).
+        const playMs = Math.min(randomBetween(THINK_MIN_MS, THINK_MAX_MS), endTime - Date.now());
+        setUserState(discordId, { action: "watching room" });
+        await playWhilePolling(queueId, token, playMs, discordId);
         if (Date.now() < endTime) {
           setUserState(discordId, { state: "closing", action: "POST /close" });
           const closeRes = await call(
@@ -231,7 +257,9 @@ async function runUser(user, endTime) {
           lastStatus: joinRes.status,
         });
 
-        await sleep(randomBetween(THINK_MIN_MS, THINK_MAX_MS));
+        const playMs = Math.min(randomBetween(THINK_MIN_MS, THINK_MAX_MS), endTime - Date.now());
+        setUserState(discordId, { action: "watching room" });
+        await playWhilePolling(queueId, token, playMs, discordId);
         if (Date.now() < endTime) {
           setUserState(discordId, { state: "leaving", action: "voice-leave" });
           await call("POST", `/api/v1/loadtest/voice-leave`, null, {
