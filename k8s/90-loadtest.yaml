@@ -220,11 +220,17 @@ spec:
             periodSeconds: 20
             failureThreshold: 3
           resources:
+            # Bumped 3x from the real backend's 250m/750m (2026-09-14),
+            # mirroring the bot-loadtest CPU fix -- backend-loadtest peaked
+            # at 645m/750m (86%) once the index fix + pool increase let more
+            # real traffic through at 10k users. Node allocatable is 1930m
+            # per node, headroom exists. NOT applied to the real backend's
+            # k8s/11-backend.yaml -- separate, deliberate decision later.
             requests:
               cpu: "250m"
               memory: "192Mi"
             limits:
-              cpu: "750m"
+              cpu: "2250m"
               memory: "384Mi"
 ---
 apiVersion: v1
