@@ -67,12 +67,21 @@ spec:
               port: 3001
             initialDelaySeconds: 10
             periodSeconds: 10
+            # Explicit, not the k8s default of 1s -- confirmed directly during
+            # load testing that a 1s HTTP timeout trips readiness on real
+            # momentary load spikes ("context deadline exceeded") that never
+            # indicated a truly unhealthy pod, pulling it out of rotation
+            # right when capacity is needed most. See the matching comment
+            # in k8s/12-bot.yaml and gcoms-dir/CLAUDE.md's load-testing note.
+            timeoutSeconds: 5
+            failureThreshold: 5
           livenessProbe:
             tcpSocket:
               port: 3001
             initialDelaySeconds: 20
             periodSeconds: 20
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 5
           resources:
             requests:
               cpu: "250m"
