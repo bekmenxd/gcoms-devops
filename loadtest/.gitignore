@@ -1,1 +1,8 @@
 node_modules/
+
+# Generated per-run artifacts: seeded users (carry real, if fake-account,
+# JWTs), run logs, and live-state snapshots. Regenerated fresh each session.
+users*.json
+run*.log
+state*.json
+

@@ -95,11 +95,17 @@ spec:
           env:
             - name: LOAD_TEST_MODE
               value: "true"
-            # Testing whether Mongo's connection pool (10/instance default)
-            # was the residual bottleneck after the usersInQueue.userID
-            # index fix -- see gcoms-dir/CLAUDE.md's load-testing note.
+            # 2026-09-16: raised 40->300 specifically on bot-loadtest to test
+            # whether Mongo connection-pool exhaustion explains the 8k-user
+            # bottleneck -- bot CPU never exceeds ~40-50% of its limit under
+            # this load, yet EVERY route (including plain reads unrelated to
+            # the create/join write paths) shows multi-second p50 latency in
+            # the bot's own request logs. Low CPU + uniformly slow across
+            # unrelated routes is the signature of requests queueing for a
+            # free DB connection, not CPU-bound work. See
+            # gcoms-dir/CLAUDE.md's load-testing note.
             - name: MONGO_MAX_POOL_SIZE
-              value: "40"
+              value: "300"
             - name: MONGODB_URI
               valueFrom:
                 secretKeyRef:
@@ -111,12 +117,19 @@ spec:
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 10
+            # Explicit, not k8s's 1s default. Without this, a merely-slow pod
+            # gets pulled from rotation mid-run and the ingress serves 503s --
+            # which measures the probe bug, not capacity. Same fix as
+            # gcoms-devops PR #6 applies to the real Deployments.
+            timeoutSeconds: 5
+            failureThreshold: 5
           livenessProbe:
             tcpSocket:
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 20
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 5
           resources:
             # Bumped 3x from the real bot's 250m/500m (2026-09-14) to test
             # whether bot-loadtest's CPU limit -- not replica count, which is
@@ -142,6 +155,134 @@ metadata:
 spec:
   selector:
     app: bot-loadtest
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# PoC: the scalable half of the api/gateway service split (gcoms-public-bot
+# branch `poc/api-gateway-split`). Same image as bot-loadtest above -- the
+# ONLY difference is the `command` override selecting a different entrypoint,
+# which is deliberate: one image and one CI pipeline keeps this PoC cheap to
+# build and trivial to throw away if the numbers don't justify it.
+#
+# entrypoints/api.js runs Mongo + the internal HTTP API and never opens a
+# gateway session, so unlike bot-loadtest this Deployment is safe to scale.
+# That is the entire hypothesis under test: load testing confirmed the single
+# bundled bot process was the ~8k-concurrent-user ceiling, and Discord's
+# one-session-per-token rule constrains only the gateway, not REST calls or
+# Mongo access. See gcoms-dir/CLAUDE.md's load-testing note.
+#
+# The gateway half (entrypoints/gateway.js) is deliberately NOT deployed here:
+# under LOAD_TEST_MODE it holds a fake client and skips the background jobs,
+# so it would be a near-no-op pod competing for scarce node headroom and
+# skewing the very measurement this exists to take. It was verified to boot
+# and serve /health locally instead (and to correctly 404 on /api/v1/queues,
+# confirming the queue API really isn't served there).
+#
+# To A/B against the bundled baseline, point backend-loadtest's BOT_API_URL at
+# `http://bot-loadtest:3000` (bundled) or `http://bot-api-loadtest:3000`
+# (split) -- one env var, no other change.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot-api-loadtest
+  namespace: gamercoms
+  labels:
+    app: bot-api-loadtest
+    loadtest: "true"
+spec:
+  # Starts at 1 so the first comparison is like-for-like against
+  # bot-loadtest's single replica: does splitting ALONE help, before any
+  # scaling? Then scaled up (kubectl scale) to measure what the split
+  # actually unlocks -- the thing bot-loadtest can never do.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bot-api-loadtest
+  template:
+    metadata:
+      labels:
+        app: bot-api-loadtest
+        loadtest: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        - name: bot-api-loadtest
+          image: ghcr.io/bekmenxd/gcoms-public-bot:loadtest-6a2b92e
+          imagePullPolicy: Always
+          # The one thing that makes this a different service from
+          # bot-loadtest. dockerfile.prod's CMD is `node src/index.js`
+          # (gateway + API bundled); this selects the api-only entrypoint.
+          command: ["node", "src/entrypoints/api.js"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: gamercoms-config
+            - secretRef:
+                name: gamercoms-secrets
+          env:
+            # entrypoints/api.js refuses to start without this, by design:
+            # outside load-test mode it would need a REST-backed client shim
+            # (phase 2) and would otherwise open a second real gateway
+            # session on the shared token.
+            - name: LOAD_TEST_MODE
+              value: "true"
+            - name: MONGO_MAX_POOL_SIZE
+              value: "300"
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-gamercoms-gamercoms
+                  key: connectionString.standard
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            # Explicit rather than k8s's 1s default -- the same probe-timeout
+            # problem found on the real Deployments (gcoms-devops PR #6);
+            # without this a merely-slow pod gets pulled from rotation mid
+            # load test and corrupts the measurement.
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            # Matches bot-loadtest exactly so per-replica capacity is
+            # comparable and the only variable is the split itself.
+            requests:
+              cpu: "500m"
+              memory: "192Mi"
+            limits:
+              cpu: "1500m"
+              memory: "384Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bot-api-loadtest
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+spec:
+  selector:
+    app: bot-api-loadtest
   ports:
     - port: 3000
       targetPort: 3000
@@ -193,15 +334,29 @@ spec:
           env:
             - name: LOAD_TEST_MODE
               value: "true"
-            # Overrides the ConfigMap's http://bot:3000 -- must talk to the
-            # load-test bot, never the real one.
+            # Overrides the ConfigMap's http://bot:3000 -- must talk to a
+            # load-test service, never the real bot.
+            #
+            # THIS IS THE A/B SWITCH for the service-split PoC:
+            #   http://bot-loadtest:3000      bundled baseline (gateway + API
+            #                                 in one process, capped at 1)
+            #   http://bot-api-loadtest:3000  split (scalable api-only tier)
+            #
+            # Set here rather than via `kubectl set env`, because any later
+            # `kubectl apply -f` of this file silently reverts an imperative
+            # override back to whatever this line says -- which already
+            # invalidated one PoC run before it was noticed.
             - name: BOT_API_URL
-              value: http://bot-loadtest:3000
-            # Testing whether Mongo's connection pool (10/instance default)
-            # was the residual bottleneck after the usersInQueue.userID
-            # index fix -- see gcoms-dir/CLAUDE.md's load-testing note.
+              value: http://bot-api-loadtest:3000
+            # 2026-09-16: raised 40->300 to match bot-loadtest. Profiling
+            # proved pool exhaustion was real (not the earlier "refuted"
+            # conclusion, which had only compared aggregate error rates
+            # rather than decomposing where the latency actually sat) --
+            # but fixing the bot's pool just moved the bottleneck here, and
+            # backend then failed its own health checks under the same load.
+            # See gcoms-dir/CLAUDE.md's load-testing note.
             - name: MONGO_MAX_POOL_SIZE
-              value: "40"
+              value: "300"
             - name: MONGODB_URI
               valueFrom:
                 secretKeyRef:
@@ -213,12 +368,19 @@ spec:
               port: 3001
             initialDelaySeconds: 5
             periodSeconds: 10
+            # Explicit, not k8s's 1s default. Without this, a merely-slow pod
+            # gets pulled from rotation mid-run and the ingress serves 503s --
+            # which measures the probe bug, not capacity. Same fix as
+            # gcoms-devops PR #6 applies to the real Deployments.
+            timeoutSeconds: 5
+            failureThreshold: 5
           livenessProbe:
             tcpSocket:
               port: 3001
             initialDelaySeconds: 10
             periodSeconds: 20
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 5
           resources:
             # Bumped 3x from the real backend's 250m/750m (2026-09-14),
             # mirroring the bot-loadtest CPU fix -- backend-loadtest peaked
@@ -271,6 +433,11 @@ spec:
         - podSelector:
             matchLabels:
               app: backend-loadtest
+        # The split PoC's api tier reads/writes Mongo directly -- that is
+        # precisely what lets it scale without a gateway session.
+        - podSelector:
+            matchLabels:
+              app: bot-api-loadtest
       ports:
         - port: 27017
 ---
@@ -285,6 +452,29 @@ spec:
   podSelector:
     matchLabels:
       app: bot-loadtest
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend-loadtest
+      ports:
+        - port: 3000
+---
+# Same as the policy above, for the split PoC's api tier -- backend-loadtest
+# talks to whichever of the two its BOT_API_URL points at, so both need to
+# accept it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bot-api-loadtest-allow-backend-loadtest
+  namespace: gamercoms
+  labels:
+    loadtest: "true"
+spec:
+  podSelector:
+    matchLabels:
+      app: bot-api-loadtest
   policyTypes: ["Ingress"]
   ingress:
     - from:
