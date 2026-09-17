@@ -83,9 +83,45 @@ spec:
           containers:
             - name: mongod
               resources:
+                # Raised 2026-09-17 from 250m/512Mi req, 500m/1Gi limit after
+                # load testing proved memory -- not CPU -- was the platform's
+                # binding constraint. At 15,000 concurrent simulated users,
+                # mongod sat at 995Mi against its 1Gi limit (97%) while using
+                # 14m of CPU, with WiredTiger logging ~1,751 cache/eviction
+                # lines in 14 minutes: it was thrashing its cache rather than
+                # doing work. Queries stretched to seconds, which blew
+                # BotService's 10s axios timeout and surfaced as 24,403
+                # unhandled 500s (44% of all requests) with every application
+                # tier idling under 35% CPU, waiting on Mongo I/O.
+                #
+                # The 1Gi limit was especially punishing because WiredTiger
+                # sizes its cache as 50% of (limit - 1GB), so at exactly 1Gi it
+                # fell back to its 256MB floor. 2Gi gives it a real ~512MB
+                # cache. Verified beforehand that the three nodes currently
+                # hosting mongo-0/1/2 have room for the larger requests (they
+                # were at 53-66% memory requests; the tightest lands ~84%).
+                #
+                # Node allocatable is only ~2.73Gi on this g6-dedicated-2 pool,
+                # so 2Gi is near the practical per-member ceiling here -- going
+                # meaningfully beyond it needs a bigger node type for the
+                # database, not another bump to these numbers.
+                # CPU limit raised 500m -> 1500m on 2026-09-17, one step after
+                # the memory bump above. Raising memory alone barely moved the
+                # 15,000-user result (success 31.7% -> 35.3%) because the
+                # elected primary was then throttled at 522m against its 500m
+                # CPU limit -- half a core, for a replica-set primary.
+                #
+                # Deliberately the LIMIT only, with the request left at 250m:
+                # four of the five nodes sit at 94-96% CPU *requests*, so
+                # raising the request would force node-pool autoscaling and
+                # real ongoing cost, whereas the nodes' actual CPU *usage* is
+                # far below their reservations -- so a limit-only raise bursts
+                # into physical headroom that is already paid for. The
+                # tradeoff is that this capacity is best-effort: under genuine
+                # node-wide contention the primary will not get it.
                 requests:
                   cpu: "250m"
-                  memory: "512Mi"
-                limits:
-                  cpu: "500m"
                   memory: "1Gi"
+                limits:
+                  cpu: "1500m"
+                  memory: "2Gi"
