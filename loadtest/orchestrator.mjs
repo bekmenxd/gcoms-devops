@@ -13,6 +13,7 @@
 // Usage:
 //   node orchestrator.mjs <usersFile.json> [--duration=<min>] [--think-min=<sec>]
 //     [--think-max=<sec>] [--create-ratio=<0-1>] [--state-file=<path>]
+//     [--workers=<n|auto>]
 //
 // Writes a live JSON snapshot to --state-file every 2s (default:
 // ./orchestrator-state.json) for the dashboard bridge to read and push via
@@ -21,6 +22,8 @@
 // a published artifact).
 
 import { readFileSync, writeFileSync } from "node:fs";
+import cluster from "node:cluster";
+import { cpus } from "node:os";
 import { Agent, setGlobalDispatcher } from "undici";
 
 // Node's built-in fetch is backed by undici, whose default Agent caps
@@ -58,7 +61,34 @@ const THINK_MAX_MS = Number(arg("think-max", "300")) * 1000;
 const CREATE_RATIO = Number(arg("create-ratio", "0.5"));
 const STATE_FILE = arg("state-file", "./orchestrator-state.json");
 
-const seededUsers = JSON.parse(readFileSync(usersFile, "utf8"));
+// Node executes JS on one thread, so a single orchestrator process has its own
+// ceiling well below the platform's: at 8,000 simulated users it sat at ~80% of
+// one core, and an earlier 50,000-user attempt pegged it at 92-97% while the
+// servers idled -- measuring the Pi rather than Gamercoms (see
+// gcoms-dir/CLAUDE.md's load-testing note). --workers forks the run across
+// several processes so the client stops being the bottleneck first.
+//
+// `--workers=auto` uses one per core. Default 1 == exactly the previous
+// single-process behaviour, so older runs stay comparable.
+const workersArg = arg("workers", "1");
+const WORKERS =
+  workersArg === "auto"
+    ? Math.max(1, cpus().length)
+    : Math.max(1, Number(workersArg) || 1);
+
+// Set by the primary when forking; absent (=> single shard) otherwise.
+const SHARD_INDEX = Number(process.env.LT_SHARD_INDEX ?? "0");
+const SHARD_COUNT = Number(process.env.LT_SHARD_COUNT ?? "1");
+const IS_WORKER = typeof process.send === "function" && SHARD_COUNT > 1;
+
+const allSeededUsers = JSON.parse(readFileSync(usersFile, "utf8"));
+// Strided rather than contiguous slices: the users file is generated in
+// creation order, so striding spreads any ordering effects evenly across
+// workers instead of giving one worker a systematically different cohort.
+const seededUsers =
+  SHARD_COUNT > 1
+    ? allSeededUsers.filter((_, i) => i % SHARD_COUNT === SHARD_INDEX)
+    : allSeededUsers;
 
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
@@ -76,6 +106,14 @@ const ROOM_POLL_INTERVAL_MS = 5000; // matches the real frontend's room-page pol
 // Queues this run itself created -- the pool users pick from to join each
 // other's queues. Not the real public directory (which may carry unrelated
 // real queues) -- this run should only ever interact with its own.
+//
+// Known deviation under --workers > 1: this Map is per-process, so users only
+// join queues created by users in the SAME worker -- N pools instead of one.
+// Deliberate: sharing it would mean routing every create/join through the
+// primary via IPC, reintroducing exactly the single-process bottleneck workers
+// exist to remove. With thousands of users per worker the partitioning effect
+// on traffic shape is small, but it is why per-worker queue counts are lower
+// than a single-process run at the same total user count.
 const openQueues = new Map(); // id -> { ownerDiscordId, size, currentUsers }
 
 const stats = {
@@ -178,6 +216,22 @@ function writeSnapshot() {
       a.discordId.localeCompare(b.discordId),
     ),
   };
+  // Workers report upward instead of writing the file: the primary owns
+  // STATE_FILE so N processes don't interleave writes to the same path.
+  // Deliberately compact -- shipping every worker's full per-user array over
+  // IPC twice a second would burn primary CPU and recreate the single-process
+  // bottleneck this exists to remove, so only counters plus a small per-worker
+  // sample for the dashboard go across.
+  if (IS_WORKER) {
+    process.send({
+      type: "stats",
+      shard: SHARD_INDEX,
+      stats,
+      openQueues: openQueues.size,
+      users: snapshot.users.slice(0, 20),
+    });
+    return;
+  }
   writeFileSync(STATE_FILE, JSON.stringify(snapshot, null, 2));
 }
 
@@ -297,8 +351,9 @@ async function runUser(user, endTime) {
 }
 
 async function main() {
+  const label = IS_WORKER ? `[worker ${SHARD_INDEX + 1}/${SHARD_COUNT}] ` : "";
   console.log(
-    `Starting load test: ${seededUsers.length} users, ${DURATION_MS / 60000}min, think ${THINK_MIN_MS / 1000}-${THINK_MAX_MS / 1000}s, create ratio ${CREATE_RATIO}`,
+    `${label}Starting load test: ${seededUsers.length} users, ${DURATION_MS / 60000}min, think ${THINK_MIN_MS / 1000}-${THINK_MAX_MS / 1000}s, create ratio ${CREATE_RATIO}`,
   );
   const endTime = Date.now() + DURATION_MS;
 
@@ -307,11 +362,126 @@ async function main() {
   clearInterval(snapshotTimer);
   writeSnapshot();
 
+  if (IS_WORKER) {
+    // The primary prints the combined totals; a worker's own numbers are only
+    // a shard's worth and would be mistaken for the whole run. Exit explicitly
+    // rather than waiting for the event loop to drain -- undici's keep-alive
+    // pool holds sockets open for up to 30s, which would otherwise delay the
+    // primary's "all workers done" by that long at the end of every run.
+    process.exit(0);
+  }
+
   console.log("\n--- Final stats ---");
   console.log(JSON.stringify(stats, null, 2));
 }
 
-main().catch((err) => {
+// ---- multi-process primary --------------------------------------------------
+
+function mergeStats(parts) {
+  const merged = { requests: 0, errors: 0, statusCounts: {} };
+  for (const part of parts) {
+    if (!part) continue;
+    merged.requests += part.requests || 0;
+    merged.errors += part.errors || 0;
+    for (const [status, count] of Object.entries(part.statusCounts || {})) {
+      merged.statusCounts[status] = (merged.statusCounts[status] || 0) + count;
+    }
+  }
+  return merged;
+}
+
+async function runPrimary() {
+  console.log(
+    `Starting load test: ${allSeededUsers.length} users across ${WORKERS} worker processes, ` +
+      `${DURATION_MS / 60000}min, think ${THINK_MIN_MS / 1000}-${THINK_MAX_MS / 1000}s, create ratio ${CREATE_RATIO}`,
+  );
+
+  const startedAt = Date.now();
+  const shardStats = new Array(WORKERS).fill(null);
+  const shardOpenQueues = new Array(WORKERS).fill(0);
+  const shardUsers = new Array(WORKERS).fill(null);
+  let alive = WORKERS;
+
+  for (let i = 0; i < WORKERS; i += 1) {
+    const worker = cluster.fork({
+      LT_SHARD_INDEX: String(i),
+      LT_SHARD_COUNT: String(WORKERS),
+    });
+    worker.on("message", (msg) => {
+      if (msg?.type !== "stats") return;
+      shardStats[msg.shard] = msg.stats;
+      shardOpenQueues[msg.shard] = msg.openQueues || 0;
+      shardUsers[msg.shard] = msg.users || [];
+    });
+  }
+
+  const writeCombined = () => {
+    const merged = mergeStats(shardStats);
+    const elapsedMs = Date.now() - startedAt;
+    writeFileSync(
+      STATE_FILE,
+      JSON.stringify(
+        {
+          updatedAt: new Date().toISOString(),
+          config: {
+            durationMs: DURATION_MS,
+            thinkMinMs: THINK_MIN_MS,
+            thinkMaxMs: THINK_MAX_MS,
+            createRatio: CREATE_RATIO,
+            userCount: allSeededUsers.length,
+            workers: WORKERS,
+          },
+          elapsedMs,
+          remainingMs: Math.max(0, DURATION_MS - elapsedMs),
+          aggregate: {
+            requests: merged.requests,
+            errors: merged.errors,
+            errorRatePct: merged.requests
+              ? Math.round((merged.errors / merged.requests) * 1000) / 10
+              : 0,
+            rps:
+              Math.round((merged.requests / Math.max(1, elapsedMs / 1000)) * 10) / 10,
+            statusCounts: merged.statusCounts,
+            openQueues: shardOpenQueues.reduce((a, b) => a + b, 0),
+          },
+          // Per-worker sample only (see writeSnapshot) -- not the full roster.
+          users: shardUsers.flatMap((u) => u ?? []),
+        },
+        null,
+        2,
+      ),
+    );
+    return merged;
+  };
+
+  const timer = setInterval(writeCombined, 2000);
+
+  await new Promise((resolve) => {
+    cluster.on("exit", (worker, code) => {
+      if (code !== 0) {
+        console.error(`[worker ${worker.process.pid}] exited with code ${code}`);
+      }
+      alive -= 1;
+      if (alive === 0) resolve();
+    });
+  });
+
+  clearInterval(timer);
+  const merged = writeCombined();
+
+  console.log("\n--- Final stats ---");
+  console.log(
+    JSON.stringify(
+      { startedAt, workers: WORKERS, users: allSeededUsers.length, ...merged },
+      null,
+      2,
+    ),
+  );
+}
+
+const entry = cluster.isPrimary && WORKERS > 1 ? runPrimary : main;
+
+entry().catch((err) => {
   console.error("Orchestrator failed:", err);
   process.exit(1);
 });
