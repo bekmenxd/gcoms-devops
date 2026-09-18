@@ -11,6 +11,12 @@ data:
 
   # Service-to-service URLs -- Compose service-name DNS maps 1:1 onto k8s
   # Service DNS within the same namespace, no other change needed.
+  # Still points at the bundled `bot` Deployment. Flipping this to
+  # "http://bot-api:3000" is the deliberate final step of the service split
+  # (k8s/12b-bot-api.yaml) -- done only AFTER bot-api is deployed and verified
+  # healthy, so the cutover is a one-line change that can be reverted in
+  # seconds rather than a big-bang deploy that fails if anything is out of
+  # order. See gcoms-dir/CLAUDE.md's load-testing note.
   BOT_API_URL: "http://bot:3000"
   BACKEND_API_URL: "http://backend:3001"
   # Staging environment -- this is the first thing stood up on the cluster,
