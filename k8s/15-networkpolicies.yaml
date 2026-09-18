@@ -80,6 +80,26 @@ spec:
       ports:
         - port: 3000
 ---
+# Same rule for the scalable half: the backend talks to whichever of the two
+# its BOT_API_URL names, and since the split that is bot-api.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: bot-api-allow-backend-only
+  namespace: gamercoms
+spec:
+  podSelector:
+    matchLabels:
+      app: bot-api
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - port: 3000
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -98,6 +118,11 @@ spec:
         - podSelector:
             matchLabels:
               app: bot
+        # The api tier reads and writes Mongo directly -- that is precisely
+        # what lets it scale without a gateway session.
+        - podSelector:
+            matchLabels:
+              app: bot-api
         - podSelector:
             matchLabels:
               app: mongo-backup
