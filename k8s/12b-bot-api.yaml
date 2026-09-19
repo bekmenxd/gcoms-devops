@@ -101,8 +101,22 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 5
           resources:
+            # CPU request is deliberately LOW (100m, not the 250m the bot
+            # uses). Requests are reservations and decide scheduling, so they
+            # are what can force the node pool to grow and cost money; limits
+            # only permit bursting into capacity already paid for. The three
+            # nodes had 420m of CPU reservation free when this was written, so
+            # 2 x 100m fits with room to spare while the 1500m limit still
+            # lets each pod burst hard. Measured actual usage under load was
+            # 200-800m per pod, i.e. well above this floor -- which is exactly
+            # what the limit is for.
+            #
+            # The tradeoff, stated plainly: under genuine node-wide CPU
+            # contention these pods are guaranteed only 100m. Raising the
+            # request later is a one-line change, but it may then require a
+            # new node.
             requests:
-              cpu: "250m"
+              cpu: "100m"
               memory: "192Mi"
             limits:
               cpu: "1500m"
@@ -137,7 +151,17 @@ spec:
     kind: Deployment
     name: bot-api
   minReplicas: 2
-  maxReplicas: 6
+  # Capped at 3, NOT the backend's 6, as a deliberate hard cost ceiling:
+  # 3 x 100m = 300m, which stays inside the 420m of CPU reservation free on
+  # the current three nodes. At 6 replicas it would need 600m and force a
+  # fourth node -- so this cap is what makes the service genuinely free to
+  # run rather than free only while idle.
+  #
+  # Raise it when the node pool has headroom (or when paying for another node
+  # is a deliberate choice). Note this is a cap on THIS tier only: the backend
+  # HPA is still 2-6 and can trigger node autoscaling on its own, which is
+  # pre-existing behaviour unaffected by the split.
+  maxReplicas: 3
   metrics:
     - type: Resource
       resource:
