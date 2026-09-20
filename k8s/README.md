@@ -23,7 +23,8 @@ option. See `13-mongo.yaml` for the full reasoning.
 | `02-secret.example.yaml` | **Template only.** Copy to `02-secret.yaml` (git-ignored) and fill in real values, or use a real secrets manager instead |
 | `10-frontend.yaml` | Deployment + Service + HPA (2-6 replicas), non-root, `imagePullSecrets` |
 | `11-backend.yaml` | Deployment + Service + HPA (2-6 replicas), non-root, `imagePullSecrets` |
-| `12-bot.yaml` | Deployment + Service -- **pinned to 1 replica, no HPA, ever** -- non-root, `imagePullSecrets` |
+| `12-bot.yaml` | Gateway half. Deployment + Service -- **pinned to 1 replica, no HPA, ever** -- non-root, `imagePullSecrets` |
+| `12b-bot-api.yaml` | Scalable half. Deployment + Service + HPA (2-6 replicas). Same image as `12-bot.yaml`; differs only in the `command` selecting the api-only entrypoint |
 | `13-mongo.yaml` | `MongoDBCommunity` custom resource -- 3-member self-hosted replica set |
 | `14-mongo-backup-cronjob.yaml` | Nightly `mongodump` -> Linode Object Storage (S3-compatible) |
 | `15-networkpolicies.yaml` | Ingress-only NetworkPolicies -- only backend/bot/the backup job can reach Mongo, etc. |
@@ -41,6 +42,12 @@ app-specific): the **MCK operator** (`13-mongo.yaml`'s header has the exact
 Helm commands) and **ingress-nginx + cert-manager** (see below).
 
 ## Why the bot is different
+
+The bot ships as two Deployments from one image. Discord's one-session limit
+applies only to the GATEWAY, not to REST calls or database access, so only
+`12-bot.yaml` is pinned at a single replica -- `12b-bot-api.yaml` serves the
+internal HTTP API and scales like any other service. Both must be deployed
+together; the deploy workflow updates both and fails if their versions differ.
 
 Discord allows exactly one live gateway session per bot token. `12-bot.yaml`
 is pinned to `replicas: 1` with `strategy: Recreate` instead of the default

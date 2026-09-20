@@ -1,0 +1,171 @@
+# The scalable half of the bot.
+#
+# Discord caps a bot token at one active GATEWAY session, which is why
+# k8s/12-bot.yaml is pinned to replicas: 1 forever. That cap applies only to
+# the gateway session -- not to outbound REST calls, and not to database
+# access. Almost everything the bot actually serves (the room poll that
+# dominates traffic volume, queue joins, creates, closes, embed edits) needs
+# neither, so it lives here and scales normally.
+#
+# Load testing established why this split exists: the bundled process was the
+# platform's ceiling at ~8,000 concurrent users, and splitting it took real
+# failures from 44% to 11% at that load while removing the crashes entirely.
+# It is also what makes backend scaling work at all -- adding backend replicas
+# did nothing while the bot was the wall. Full detail in gcoms-dir/CLAUDE.md's
+# load-testing note.
+#
+# SAME IMAGE as 12-bot.yaml, deliberately. The two Deployments differ only in
+# the `command` selecting a different entrypoint. One image and one build
+# pipeline means the two halves can never disagree on version, and a model or
+# service change lands in both at once.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot-api
+  namespace: gamercoms
+  labels:
+    app: bot-api
+spec:
+  # Matches the backend's HPA floor. Unlike `bot` this may scale freely --
+  # it holds no gateway session, so N replicas is safe.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: bot-api
+  template:
+    metadata:
+      labels:
+        app: bot-api
+    spec:
+      # Matches dockerfile.prod's non-root `appuser` (uid/gid 1001).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      containers:
+        # Container name MUST equal the Deployment name: the deploy workflow
+        # (gcoms-public-bot/.github/workflows/deploy-k8s.yml) updates both
+        # halves with `kubectl set image deployment/$d $d=...`.
+        - name: bot-api
+          image: REGISTRY_PLACEHOLDER/gcoms-public-bot:TAG_PLACEHOLDER
+          imagePullPolicy: Always
+          # The entire difference between this Deployment and 12-bot.yaml.
+          # dockerfile.prod's CMD is `node src/index.js` (gateway + API in one
+          # process); this selects the api-only entrypoint, which never calls
+          # client.login() and so never opens a gateway session.
+          command: ["node", "src/entrypoints/api.js"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: gamercoms-config
+            - secretRef:
+                name: gamercoms-secrets
+          env:
+            # Same operator-generated Secret as the bot and backend use.
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongo-gamercoms-gamercoms
+                  key: connectionString.standard
+            # Load testing showed the default pool of 10 was a real bottleneck:
+            # raising it cut this tier's median latency by 83% (requests were
+            # queueing for a free connection, not doing work -- CPU stayed
+            # under 50% throughout). Set explicitly here rather than in the
+            # shared ConfigMap so the two bot halves can be tuned separately.
+            - name: MONGO_MAX_POOL_SIZE
+              value: "100"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            # Explicit, not k8s's 1s default -- a 1s timeout marks a merely-slow
+            # pod unhealthy under real load and pulls it from rotation exactly
+            # when capacity is needed most. Observed for real during load
+            # testing; see the same fix on 11-backend.yaml and 12-bot.yaml.
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            # CPU request is deliberately LOW (100m, not the 250m the bot
+            # uses). Requests are reservations and decide scheduling, so they
+            # are what can force the node pool to grow and cost money; limits
+            # only permit bursting into capacity already paid for. The three
+            # nodes had 420m of CPU reservation free when this was written, so
+            # 2 x 100m fits with room to spare while the 1500m limit still
+            # lets each pod burst hard. Measured actual usage under load was
+            # 200-800m per pod, i.e. well above this floor -- which is exactly
+            # what the limit is for.
+            #
+            # The tradeoff, stated plainly: under genuine node-wide CPU
+            # contention these pods are guaranteed only 100m. Raising the
+            # request later is a one-line change, but it may then require a
+            # new node.
+            requests:
+              cpu: "100m"
+              memory: "192Mi"
+            limits:
+              cpu: "1500m"
+              memory: "384Mi"
+---
+# ClusterIP only -- reachable solely by the backend over the internal network,
+# same as the bot's own Service. The backend's BOT_API_URL points here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bot-api
+  namespace: gamercoms
+spec:
+  selector:
+    app: bot-api
+  ports:
+    - port: 3000
+      targetPort: 3000
+---
+# Safe to autoscale precisely because this half holds no gateway session --
+# the constraint that makes an HPA on `bot` permanently forbidden does not
+# apply here. Thresholds mirror the backend's as a starting point; revisit
+# under real traffic.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: bot-api
+  namespace: gamercoms
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: bot-api
+  minReplicas: 2
+  # Capped at 3, NOT the backend's 6, as a deliberate hard cost ceiling:
+  # 3 x 100m = 300m, which stays inside the 420m of CPU reservation free on
+  # the current three nodes. At 6 replicas it would need 600m and force a
+  # fourth node -- so this cap is what makes the service genuinely free to
+  # run rather than free only while idle.
+  #
+  # Raise it when the node pool has headroom (or when paying for another node
+  # is a deliberate choice). Note this is a cap on THIS tier only: the backend
+  # HPA is still 2-6 and can trigger node autoscaling on its own, which is
+  # pre-existing behaviour unaffected by the split.
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

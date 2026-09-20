@@ -1,3 +1,8 @@
+# The GATEWAY half of the bot. The internal HTTP API lives in a separate,
+# horizontally-scalable Deployment (k8s/12b-bot-api.yaml) built from this same
+# image -- only the `command` differs. Both are deployed together by
+# gcoms-public-bot's deploy workflow, which fails if their versions diverge.
+#
 # Discord allows exactly one active gateway session per bot token per shard.
 # This Deployment MUST stay at replicas: 1 and MUST NEVER get an HPA --
 # scaling it out causes the two sessions to fight over the same token,
