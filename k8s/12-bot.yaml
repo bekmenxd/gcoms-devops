@@ -75,12 +75,30 @@ spec:
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10
+            # Explicit, not the k8s default of 1s -- a 1s HTTP timeout trips
+            # on any real momentary load spike (confirmed directly during
+            # load testing: "context deadline exceeded" readiness failures
+            # under load that never indicated a truly dead process), pulling
+            # a perfectly fine pod out of rotation for a transient blip. See
+            # gcoms-dir/CLAUDE.md's load-testing note.
+            timeoutSeconds: 5
+            failureThreshold: 5
           livenessProbe:
             tcpSocket:
               port: 3000
             initialDelaySeconds: 20
             periodSeconds: 20
-            failureThreshold: 3
+            # Same 1s-default problem as readinessProbe above, but higher
+            # stakes here: a liveness failure RESTARTS the pod, dropping the
+            # bot's one Discord gateway session outright. Confirmed directly:
+            # a real load test observed the bot's liveness probe fail with a
+            # bare TCP i/o timeout (not even a full HTTP round trip) under
+            # heavy load and get killed/restarted -- exactly the "lost a good
+            # gateway session for no benefit" scenario the surrounding
+            # comment already warns about, just via the timeout default
+            # rather than reusing /health.
+            timeoutSeconds: 5
+            failureThreshold: 5
           resources:
             requests:
               cpu: "250m"
