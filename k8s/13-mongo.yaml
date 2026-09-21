@@ -81,6 +81,27 @@ spec:
       template:
         spec:
           containers:
+            # The operator's own default for this sidecar is a 500m CPU
+            # REQUEST, which is a reservation of a quarter of a node per
+            # member -- 1500m across the replica set -- for a process measured
+            # at 21-23m in steady state. Requests are what the scheduler
+            # reserves and therefore what forces the node pool to grow, so
+            # that default was costing a node's worth of capacity for nothing.
+            #
+            # 100m still leaves 4-5x headroom over observed usage, and the
+            # agent's work is bursty reconciliation rather than sustained
+            # load. Lowered 2026-09-21 after activating the bot service split
+            # pushed the cluster to a fourth node: the honest fix was to stop
+            # over-reserving here rather than to shrink services that are
+            # actually doing work.
+            - name: mongodb-agent
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "200Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "500Mi"
             - name: mongod
               resources:
                 # Raised 2026-09-17 from 250m/512Mi req, 500m/1Gi limit after
