@@ -28,6 +28,18 @@ data:
   PORT: "3000"
 
   # Public Discord application ID -- not secret, but repo-specific.
+  # The OAuth/login application -- NOT the bot. Deliberately still pointing at
+  # 1379923688094302339 even though that app is being retired, because the
+  # matching DISCORD_CLIENT_SECRET in gamercoms-secrets belongs to it: changing
+  # this id alone breaks login outright, since the token exchange sends id and
+  # secret together.
+  #
+  # To finish retiring that app, all three must happen together:
+  #   1. add this environment's callback URL as a redirect URI on app
+  #      1326999027321012246 in the Discord Developer Portal
+  #   2. put that app's client secret into gamercoms-secrets
+  #   3. change this id (and the frontend's build-time
+  #      NEXT_PUBLIC_DISCORD_CLIENT_ID) to match
   DISCORD_CLIENT_ID: "1379923688094302339"
 
   # Weekly filled-queues leaderboard job (bot). GUILD_ID is "GamerComs
@@ -65,5 +77,19 @@ data:
   # --build-arg, or the baked-in values will be wrong/missing regardless of
   # what's in this ConfigMap. See Gamercoms-web/CLAUDE.md notes on
   # BACKEND_API_URL for the same gotcha already documented there.
+  # WARNING: these two have NO effect on the running frontend. NEXT_PUBLIC_*
+  # variables are inlined by Next.js at BUILD time, so the values that actually
+  # ship come from the build environment -- GitHub repository variables for CI
+  # builds (Gamercoms-web: Settings -> Secrets and variables -> Actions ->
+  # Variables), and .env.local for local dev. Changing them here changes
+  # nothing until a rebuild, and a rebuild ignores these.
+  #
+  # They are kept, and kept correct, only so this file does not actively
+  # mislead: an earlier wrong value here sent someone hunting in the wrong
+  # place while the real setting sat in GitHub.
+  #
+  # BOT_CLIENT_ID must be the app whose bot TOKEN runs in this environment
+  # (1326999027321012246). CLIENT_ID is the OAuth/login app, which is a
+  # SEPARATE setting -- see DISCORD_CLIENT_ID below before changing it.
   NEXT_PUBLIC_DISCORD_CLIENT_ID: "1379923688094302339"
-  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1379923688094302339"
+  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1326999027321012246"
