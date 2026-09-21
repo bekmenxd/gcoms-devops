@@ -11,13 +11,17 @@ data:
 
   # Service-to-service URLs -- Compose service-name DNS maps 1:1 onto k8s
   # Service DNS within the same namespace, no other change needed.
-  # Still points at the bundled `bot` Deployment. Flipping this to
-  # "http://bot-api:3000" is the deliberate final step of the service split
-  # (k8s/12b-bot-api.yaml) -- done only AFTER bot-api is deployed and verified
-  # healthy, so the cutover is a one-line change that can be reverted in
-  # seconds rather than a big-bang deploy that fails if anything is out of
-  # order. See gcoms-dir/CLAUDE.md's load-testing note.
-  BOT_API_URL: "http://bot:3000"
+  # Points at the SCALABLE half of the bot (k8s/12b-bot-api.yaml), not the
+  # gateway half. `bot` holds Discord's one permitted gateway session and is
+  # pinned to a single replica forever; `bot-api` serves this internal API and
+  # scales, which is the entire point of the split.
+  #
+  # Cut over 2026-09-21 after bot-api was deployed and verified healthy
+  # (role "api", gateway false, both replicas Ready). Reverting is this one
+  # line back to "http://bot:3000" plus `kubectl rollout restart
+  # deployment/backend` -- note the restart is required either way, since a
+  # ConfigMap change does not propagate to already-running pods.
+  BOT_API_URL: "http://bot-api:3000"
   BACKEND_API_URL: "http://backend:3001"
   # Staging environment -- this is the first thing stood up on the cluster,
   # not a production cutover. Swap to https://www.gamercoms.com when/if this
