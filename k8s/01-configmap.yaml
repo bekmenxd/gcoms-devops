@@ -28,19 +28,15 @@ data:
   PORT: "3000"
 
   # Public Discord application ID -- not secret, but repo-specific.
-  # The OAuth/login application -- NOT the bot. Deliberately still pointing at
-  # 1379923688094302339 even though that app is being retired, because the
-  # matching DISCORD_CLIENT_SECRET in gamercoms-secrets belongs to it: changing
-  # this id alone breaks login outright, since the token exchange sends id and
-  # secret together.
+  # The OAuth/login application. Consolidated onto the same app as the bot on
+  # 2026-09-21, retiring 1379923688094302339 ("gcoms-auth-test") entirely.
   #
-  # To finish retiring that app, all three must happen together:
-  #   1. add this environment's callback URL as a redirect URI on app
-  #      1326999027321012246 in the Discord Developer Portal
-  #   2. put that app's client secret into gamercoms-secrets
-  #   3. change this id (and the frontend's build-time
-  #      NEXT_PUBLIC_DISCORD_CLIENT_ID) to match
-  DISCORD_CLIENT_ID: "1379923688094302339"
+  # This id and DISCORD_CLIENT_SECRET in gamercoms-secrets MUST belong to the
+  # same application -- the token exchange sends them together, so a mismatch
+  # breaks login outright rather than degrading. Both were changed together,
+  # and the pair was verified against Discord's token endpoint before rollout,
+  # as were the redirect URIs on the new app.
+  DISCORD_CLIENT_ID: "1326999027321012246"
 
   # Weekly filled-queues leaderboard job (bot). GUILD_ID is "GamerComs
   # STAGING" (see gcoms-dir/CLAUDE.md's known-guilds list) -- these were
@@ -91,5 +87,5 @@ data:
   # BOT_CLIENT_ID must be the app whose bot TOKEN runs in this environment
   # (1326999027321012246). CLIENT_ID is the OAuth/login app, which is a
   # SEPARATE setting -- see DISCORD_CLIENT_ID below before changing it.
-  NEXT_PUBLIC_DISCORD_CLIENT_ID: "1379923688094302339"
+  NEXT_PUBLIC_DISCORD_CLIENT_ID: "1326999027321012246"
   NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1326999027321012246"
