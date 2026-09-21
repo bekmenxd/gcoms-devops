@@ -32,7 +32,15 @@ data:
   PORT: "3000"
 
   # Public Discord application ID -- not secret, but repo-specific.
-  DISCORD_CLIENT_ID: "1379923688094302339"
+  # The OAuth/login application. Consolidated onto the same app as the bot on
+  # 2026-09-21, retiring 1379923688094302339 ("gcoms-auth-test") entirely.
+  #
+  # This id and DISCORD_CLIENT_SECRET in gamercoms-secrets MUST belong to the
+  # same application -- the token exchange sends them together, so a mismatch
+  # breaks login outright rather than degrading. Both were changed together,
+  # and the pair was verified against Discord's token endpoint before rollout,
+  # as were the redirect URIs on the new app.
+  DISCORD_CLIENT_ID: "1326999027321012246"
 
   # Weekly filled-queues leaderboard job (bot). GUILD_ID is "GamerComs
   # STAGING" (see gcoms-dir/CLAUDE.md's known-guilds list) -- these were
@@ -69,5 +77,19 @@ data:
   # --build-arg, or the baked-in values will be wrong/missing regardless of
   # what's in this ConfigMap. See Gamercoms-web/CLAUDE.md notes on
   # BACKEND_API_URL for the same gotcha already documented there.
-  NEXT_PUBLIC_DISCORD_CLIENT_ID: "1379923688094302339"
-  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1379923688094302339"
+  # WARNING: these two have NO effect on the running frontend. NEXT_PUBLIC_*
+  # variables are inlined by Next.js at BUILD time, so the values that actually
+  # ship come from the build environment -- GitHub repository variables for CI
+  # builds (Gamercoms-web: Settings -> Secrets and variables -> Actions ->
+  # Variables), and .env.local for local dev. Changing them here changes
+  # nothing until a rebuild, and a rebuild ignores these.
+  #
+  # They are kept, and kept correct, only so this file does not actively
+  # mislead: an earlier wrong value here sent someone hunting in the wrong
+  # place while the real setting sat in GitHub.
+  #
+  # BOT_CLIENT_ID must be the app whose bot TOKEN runs in this environment
+  # (1326999027321012246). CLIENT_ID is the OAuth/login app, which is a
+  # SEPARATE setting -- see DISCORD_CLIENT_ID below before changing it.
+  NEXT_PUBLIC_DISCORD_CLIENT_ID: "1326999027321012246"
+  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1326999027321012246"
