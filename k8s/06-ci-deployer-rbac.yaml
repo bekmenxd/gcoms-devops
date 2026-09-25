@@ -42,3 +42,30 @@ roleRef:
   kind: Role
   name: ci-deployer
   apiGroup: rbac.authorization.k8s.io
+---
+# The credential the GitHub Actions KUBECONFIG secret is built from.
+#
+# This exists because `kubectl create token` mints a time-limited token: the
+# original staging KUBECONFIG was made that way, so it carried an undocumented
+# expiry that would eventually have broken every deploy with no warning and no
+# obvious cause. A Secret of this type is filled in by the token controller and
+# does NOT expire, which is what a long-lived CI credential needs.
+#
+# Committing this file is safe even though this repo is public: the manifest
+# contains no token. The controller populates `data.token` and `data.ca.crt` in
+# the cluster; nothing sensitive is written back here.
+#
+# To rebuild the kubeconfig (e.g. after rotating the credential by deleting and
+# re-applying this Secret), read `token` and `ca.crt` out of it and assemble a
+# kubeconfig pointing at the cluster's API server, then set it as the KUBECONFIG
+# secret on each repo's staging AND production environments. Decode the fields
+# with a real base64 decoder, never shell pipelines -- `grep | cut | tr` has
+# silently corrupted a credential in this project before.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ci-deployer-token
+  namespace: gamercoms
+  annotations:
+    kubernetes.io/service-account.name: ci-deployer
+type: kubernetes.io/service-account-token
