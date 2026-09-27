@@ -29,6 +29,7 @@ option. See `13-mongo.yaml` for the full reasoning.
 | `14-mongo-backup-cronjob.yaml` | Nightly `mongodump` -> Linode Object Storage (S3-compatible) |
 | `15-networkpolicies.yaml` | Ingress-only NetworkPolicies -- only backend/bot/the backup job can reach Mongo, etc. |
 | `20-ingress.yaml` | Routes `staging.gamercoms.com` / `api.staging.gamercoms.com` (first environment on this cluster is staging, not prod), with rate limiting |
+| `21-ingress-production.yaml` | Routes `www.gamercoms.com` / `gamercoms.com` / `api.gamercoms.com` via `letsencrypt-prod`. **Not applied yet** -- see the cutover runbook below for why the order matters |
 
 Apply in filename order (`kubectl apply -f k8s/`) once the placeholders below
 are filled in -- the numeric prefixes exist so that ordering is unambiguous
@@ -40,6 +41,99 @@ k8s/` will work, neither of which is a manifest in this repo (same reasoning
 as ingress-nginx/cert-manager below -- cluster-wide addons, not
 app-specific): the **MCK operator** (`13-mongo.yaml`'s header has the exact
 Helm commands) and **ingress-nginx + cert-manager** (see below).
+
+## Production cutover runbook
+
+This cluster does not gain a production environment — it *becomes* one. There
+is one cluster, one namespace, one database. When DNS moves, staging stops
+existing; there is no second place to try things first. Everything below is
+ordered because the order is what makes it safe.
+
+Two things make this different from a normal deploy. Applying the production
+Ingress before DNS moves burns Let's Encrypt's failed-validation rate limit
+(reasoning in `21-ingress-production.yaml`'s header). And switching Discord
+applications is not a config change — it changes which bot *user* is in each
+guild.
+
+### Before the window
+
+1. **Confirm which Discord application old production runs.** Everything in
+   step 3 depends on this. Expected: `1257298573436125185` ("GamerComs bot",
+   verified to exist via Discord's public application API) — the cluster
+   currently runs `1326999027321012246` ("GComsTestBot"). On the old server:
+   `grep DISCORD_CLIENT_ID ~/gcoms/*/.env`, or decode the bot token's first
+   segment, which is the application id in base64.
+
+   **This is the one step with no undo.** The 30 migrated guilds have the old
+   production bot installed. If the cluster comes up on the test application,
+   every one of those guilds has no bot present — not a broken bot, an absent
+   one — and getting it back means re-inviting the bot to 30 servers by hand.
+
+2. **Register the redirect URI** `https://www.gamercoms.com/auth/discord/callback`
+   on that application. The backend sends this to Discord's token endpoint as
+   `${FRONTEND_URL}/auth/discord/callback`; Discord rejects an exact-match
+   miss, so login fails closed rather than degrading.
+
+3. **Put that application's credentials in the cluster.** `DISCORD_API_TOKEN`
+   and `DISCORD_CLIENT_SECRET` in the `gamercoms-secrets` Secret. Write them
+   through a real base64 encoder — shell quoting silently added a byte to a
+   client secret in this project once, which authenticated from a laptop and
+   returned `invalid_client` from inside the pod.
+
+4. **Rebuild the frontend.** `NEXT_PUBLIC_DISCORD_CLIENT_ID` and
+   `NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID` are GitHub *repository variables*, not
+   ConfigMap entries, and Next.js inlines them at **build** time. Changing
+   them needs a new build, not a redeploy — a redeploy ships the old values.
+
+5. **Take a fresh `mongodump` of old production.** What is in the cluster now
+   is a test snapshot from 2026-09-24 and is already stale.
+
+### The window
+
+6. **Stop the old VPS bot first.** Same token, and Discord permits one gateway
+   session — two running bots take the session from each other indefinitely.
+
+7. **Restore the fresh dump.** `dropDatabase` is denied to the `gamercoms`
+   user; empty each collection with `deleteMany({})` and confirm empty before
+   restoring, or you get unique-index collisions on top of surviving rows.
+
+8. **Point DNS at the NodeBalancer** — `172.232.145.14`, at Cloudflare, for
+   `www`, the apex, and `api`.
+
+9. **Apply the production Ingress** and watch the certificates go Ready:
+   `kubectl apply -f k8s/21-ingress-production.yaml && kubectl get certificate -n gamercoms -w`
+
+10. **Merge and apply the ConfigMap cutover PR**, then restart the consumers.
+    A ConfigMap change does **not** reach running pods:
+    `kubectl rollout restart deployment/backend deployment/bot deployment/bot-api -n gamercoms`
+
+    That PR is held open deliberately rather than merged early: `FRONTEND_URL`
+    is both the backend's CORS origin and its OAuth `redirect_uri`, so merging
+    it while staging is still live means any stray `kubectl apply -f
+    k8s/01-configmap.yaml` from `main` breaks staging login. That exact failure
+    has happened here before, with `BOT_API_URL`.
+
+11. **Verify against the origin, not through Cloudflare.** A 200 from
+    Cloudflare can still be the old server:
+    `curl -sI --resolve www.gamercoms.com:443:172.232.145.14 https://www.gamercoms.com/`
+    Then log in for real, and confirm the bot is online in a migrated guild.
+
+### After
+
+12. **Unset the `AUTO_DEPLOY_ENVIRONMENT` repository variable** on all three
+    app repos. It is currently `staging`; leaving it set means every merge to
+    the default branch ships straight to live users. Required-reviewer
+    protection is not available on this plan (the branch-protection API 403s
+    with "Upgrade to GitHub Pro"), so this variable being unset is the only
+    gate that exists. Merges still build and push the image; deploying becomes
+    a deliberate run of the Deploy workflow.
+
+13. **Retire staging:** `kubectl delete -f k8s/20-ingress.yaml`, and drop the
+    staging DNS records.
+
+14. **Decide where the weekly leaderboard posts.**
+    `WEEKLY_LEADERBOARD_GUILD_ID` is still the GamerComs STAGING guild, so
+    after cutover the job posts production activity into a test server.
 
 ## Why the bot is different
 

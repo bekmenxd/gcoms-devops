@@ -1,0 +1,113 @@
+# Production Ingress. Deliberately a SEPARATE object from 20-ingress.yaml
+# rather than an edit to it, so the staging hosts keep serving until production
+# is verified, and so backing out is `kubectl delete -f` on this one file.
+#
+# ---------------------------------------------------------------------------
+# APPLY ORDER MATTERS. Applying this BEFORE the DNS cutover actively costs you
+# something.
+# ---------------------------------------------------------------------------
+# cert-manager answers Let's Encrypt's HTTP01 challenge by serving a file at
+# http://<host>/.well-known/acme-challenge/<token> -- and Let's Encrypt reaches
+# that host by following public DNS. Until DNS points at this cluster's
+# NodeBalancer (172.232.145.14), every challenge is routed to the OLD
+# production server instead, which knows nothing about it and 404s.
+#
+# That is not a harmless no-op. Let's Encrypt's production CA rate-limits
+# FAILED validations (5 per account, per hostname, per hour), so applying this
+# early and letting cert-manager retry burns the budget you need on the day you
+# actually cut over.
+#
+#   Correct order: DNS first, then apply this, then verify the certificates.
+#
+# Verify before trusting it (do not skip -- a 200 through Cloudflare proves
+# nothing about WHICH origin served it):
+#   kubectl get certificate -n gamercoms -w
+#   curl -sI --resolve www.gamercoms.com:443:172.232.145.14 https://www.gamercoms.com/
+#
+# Once production is confirmed healthy, retire staging:
+#   kubectl delete -f k8s/20-ingress.yaml
+#
+# ---------------------------------------------------------------------------
+# Three hosts, and all three are load-bearing.
+# ---------------------------------------------------------------------------
+# `www.gamercoms.com` is the CANONICAL host, not `gamercoms.com`. Confirmed
+# live, not assumed: the apex 301s to www today, www serves 200, and
+# Gamercoms-web/src/middleware.ts 308-redirects the apex host to www in the
+# application itself.
+#
+# The apex is listed here anyway, and leaving it out would be the easy mistake
+# to make: something in front (a Cloudflare redirect rule, or the old server)
+# currently answers the apex, and if that goes away with the cutover while the
+# apex is absent here, the ingress-nginx default backend serves a bare 404 for
+# gamercoms.com. Listing it costs nothing and lets the app's own middleware do
+# the redirect.
+#
+# `letsencrypt-prod` (not -staging) because these hosts face real browsers and
+# a staging-CA certificate is untrusted by every one of them. The issuer
+# already exists and reports Ready (k8s/05-cluster-issuers.yaml).
+#
+# Cloudflare's edge certificate is NOT a blocker here, unlike on staging:
+# api.staging.gamercoms.com fails Cloudflare's own TLS handshake because
+# Universal SSL does not cover two-level subdomains, but api.gamercoms.com is
+# one level and completes TLS today (it answers 404 from the old origin, which
+# is an HTTP response -- so the handshake succeeded).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gamercoms-production
+  namespace: gamercoms
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Same per-source-IP limit staging runs. Note these annotations are scoped
+    # PER INGRESS OBJECT, so this gets its own budget rather than sharing
+    # 20-ingress.yaml's -- which is what we want, but means the cluster-wide
+    # ceiling is higher than either number alone suggests while both exist.
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "3"
+spec:
+  ingressClassName: nginx
+  tls:
+    # Apex and www share one certificate: the apex only exists to redirect, and
+    # a single cert with both SANs means one HTTP01 challenge pair instead of
+    # two, which matters against the rate limit described above.
+    - hosts:
+        - www.gamercoms.com
+        - gamercoms.com
+      secretName: gamercoms-web-prod-tls
+    - hosts:
+        - api.gamercoms.com
+      secretName: gamercoms-api-prod-tls
+  rules:
+    - host: www.gamercoms.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+    # Routed to the frontend, not to a redirect stub: the 308 to www comes from
+    # Gamercoms-web's own middleware, so this host has to actually reach it.
+    - host: gamercoms.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+    - host: api.gamercoms.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 3001
