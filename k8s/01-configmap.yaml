@@ -130,8 +130,15 @@ data:
   # mislead: an earlier wrong value here sent someone hunting in the wrong
   # place while the real setting sat in GitHub.
   #
-  # BOT_CLIENT_ID must be the app whose bot TOKEN runs in this environment
-  # (1326999027321012246). CLIENT_ID is the OAuth/login app, which is a
-  # SEPARATE setting -- see DISCORD_CLIENT_ID below before changing it.
-  NEXT_PUBLIC_DISCORD_CLIENT_ID: "1326999027321012246"
-  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1326999027321012246"
+  # BOT_CLIENT_ID must be the app whose bot TOKEN runs in this environment.
+  # Both are now the same application, since login and the bot were
+  # consolidated onto one app.
+  #
+  # Moved to the production app alongside DISCORD_CLIENT_ID above. These two
+  # lines change nothing by themselves -- the values that actually ship are
+  # Gamercoms-web's GitHub repository variables of the same names, applied at
+  # BUILD time. They are updated here only to keep this file honest, per the
+  # warning above: a stale value here already sent one investigation to
+  # entirely the wrong place.
+  NEXT_PUBLIC_DISCORD_CLIENT_ID: "1257298573436125185"
+  NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID: "1257298573436125185"
