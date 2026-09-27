@@ -23,24 +23,57 @@ data:
   # ConfigMap change does not propagate to already-running pods.
   BOT_API_URL: "http://bot-api:3000"
   BACKEND_API_URL: "http://backend:3001"
-  # Staging environment -- this is the first thing stood up on the cluster,
-  # not a production cutover. Swap to https://www.gamercoms.com when/if this
-  # ConfigMap is reused for a real prod deploy later.
-  FRONTEND_URL: "https://staging.gamercoms.com"
+  # PRODUCTION cutover value. `www`, not the apex: the apex 301s to www and
+  # Gamercoms-web's middleware 308-redirects it, so the apex is never the
+  # origin a browser ends up on.
+  #
+  # This one variable does two jobs in the backend, and getting it wrong fails
+  # closed in both:
+  #   - it is the CORS `origin` (src/index.js), so a mismatch blocks every
+  #     browser call from the site;
+  #   - it builds the OAuth `redirect_uri` sent to Discord's token endpoint as
+  #     `${FRONTEND_URL}/auth/discord/callback` (src/api/routes/v1/auth), which
+  #     Discord matches EXACTLY -- so this string must be registered verbatim
+  #     as a redirect URI on the application named in DISCORD_CLIENT_ID below.
+  #
+  # Changing it does not reach running pods; the backend needs a
+  # `kubectl rollout restart` afterwards.
+  FRONTEND_URL: "https://www.gamercoms.com"
 
   # Bot's own listen port (read via process.env.PORT).
   PORT: "3000"
 
-  # Public Discord application ID -- not secret, but repo-specific.
-  # The OAuth/login application. Consolidated onto the same app as the bot on
-  # 2026-09-21, retiring 1379923688094302339 ("gcoms-auth-test") entirely.
+  # Public Discord application ID -- not secret, but repo-specific. Serves as
+  # BOTH the OAuth/login app and the bot app; they were consolidated onto one
+  # application on 2026-09-21, retiring 1379923688094302339
+  # ("gcoms-auth-test") entirely.
   #
-  # This id and DISCORD_CLIENT_SECRET in gamercoms-secrets MUST belong to the
-  # same application -- the token exchange sends them together, so a mismatch
-  # breaks login outright rather than degrading. Both were changed together,
-  # and the pair was verified against Discord's token endpoint before rollout,
-  # as were the redirect URIs on the new app.
-  DISCORD_CLIENT_ID: "1326999027321012246"
+  # PRODUCTION cutover value: 1257298573436125185 ("GamerComs bot"), replacing
+  # the cluster's current 1326999027321012246 ("GComsTestBot"). Both confirmed
+  # to exist via Discord's public application API.
+  #
+  # ** This is the single least reversible line in the cutover. **
+  # The 30 guilds migrated from old production have THAT application's bot
+  # installed. An application id is an identity, not an environment setting --
+  # coming up on the test app means those guilds have no bot present at all,
+  # and the way back is re-inviting it to 30 servers by hand. Confirm what old
+  # production actually runs before merging: `grep DISCORD_CLIENT_ID
+  # ~/gcoms/*/.env` on the old server, or decode the bot token's first segment
+  # (it is the application id, base64).
+  #
+  # Three things must move together or login breaks outright rather than
+  # degrading:
+  #   1. this id;
+  #   2. DISCORD_CLIENT_SECRET *and* DISCORD_API_TOKEN in gamercoms-secrets --
+  #      the token exchange sends id+secret together, so a mismatched pair is
+  #      a hard `invalid_client`. Write them with a real base64 encoder: shell
+  #      quoting silently added a byte to a client secret here once, which
+  #      authenticated from a laptop and failed from inside the pod;
+  #   3. NEXT_PUBLIC_DISCORD_CLIENT_ID and NEXT_PUBLIC_DISCORD_BOT_CLIENT_ID,
+  #      which are GitHub *repository variables* on Gamercoms-web, NOT entries
+  #      in this ConfigMap. Next.js inlines them at BUILD time, so they need a
+  #      rebuild -- a redeploy ships the old ids.
+  DISCORD_CLIENT_ID: "1257298573436125185"
 
   # Weekly filled-queues leaderboard job (bot). GUILD_ID is "GamerComs
   # STAGING" (see gcoms-dir/CLAUDE.md's known-guilds list) -- these were
@@ -49,6 +82,15 @@ data:
   # than falling back to its own defaults, so it was trying to post to a
   # guild literally named "REPLACE_ME" and failing) -- caught via the new
   # Fluent Bit -> Grafana Cloud log pipeline.
+  #
+  # ** Left unchanged deliberately, and it needs a decision before cutover. **
+  # This is the STAGING guild, and the bot application changes above. The
+  # production bot ("GamerComs bot") is not necessarily a member of the
+  # staging guild at all, so after cutover this job most likely stops working
+  # rather than merely posting to the wrong place -- and if the production bot
+  # IS in there, it posts real production activity into a test server every
+  # week. Point it at whichever real community guild should receive the
+  # leaderboard; not a value anyone but you can pick.
   WEEKLY_LEADERBOARD_GUILD_ID: "1336405641673183254"
   WEEKLY_LEADERBOARD_CHANNEL_ID: "1501505980469612644"
   WEEKLY_LEADERBOARD_TIMEZONE: "Europe/Stockholm"
