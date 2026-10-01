@@ -80,6 +80,34 @@ spec:
                 storage: 10Gi
       template:
         spec:
+          # Keep the three members on three different nodes.
+          #
+          # Without this the scheduler merely *tends* to spread them, and a
+          # reschedule (node drain, eviction, autoscaler churn) can quietly put
+          # two members on one node. Losing that node would then take two of
+          # three members with it -- quorum gone, database down -- which is a
+          # strictly worse outcome than the single-node loss the replica set
+          # exists to survive. Checked 2026-10-02: the members happened to be
+          # correctly spread, by luck rather than by rule.
+          #
+          # `required`, not `preferred`, on purpose: for a quorum-critical set,
+          # a member left Pending until capacity exists is better than one
+          # silently co-located. The node pool autoscales to 5, so there is
+          # room for a replacement node.
+          #
+          # This also pins the node-pool floor at 3 -- on two nodes the
+          # doubling-up this prevents would be unavoidable, which is why
+          # dropping a node to save money is not the saving it appears to be.
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchExpressions:
+                      - key: app
+                        operator: In
+                        values:
+                          - mongo-svc
+                  topologyKey: kubernetes.io/hostname
           containers:
             # The operator's own default for this sidecar is a 500m CPU
             # REQUEST, which is a reservation of a quarter of a node per

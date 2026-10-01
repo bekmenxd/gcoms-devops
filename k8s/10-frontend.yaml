@@ -57,10 +57,23 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3
+          # Right-sized 2026-10-02 against measured production usage (~1m CPU / ~65Mi
+          # observed per pod at live-but-quiet traffic). The old 300m was a
+          # pre-launch guess, and it mattered: requests are reservations, so at
+          # the HPA's max of 6 replicas the previous number alone would have
+          # reserved 1800m -- more than the cluster had spare. That made the
+          # configured max unreachable in practice.
+          #
+          # LIMITS ARE DELIBERATELY UNCHANGED, so burst capacity is identical;
+          # only the floor the scheduler sets aside moved. The HPA keeps its
+          # 2-6 range and 70% CPU target, which now triggers at 105m actual
+          # per pod instead of 210m -- it scales a little sooner, but each
+          # replica costs a third less to place, so a full scale-out finally
+          # fits. Revisit once there is real sustained traffic to measure.
           resources:
             requests:
-              cpu: "300m"
-              memory: "384Mi"
+              cpu: "150m"
+              memory: "256Mi"
             limits:
               cpu: "1000m"
               memory: "768Mi"
