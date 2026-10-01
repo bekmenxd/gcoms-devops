@@ -91,15 +91,20 @@ data:
   # IS in there, it posts real production activity into a test server every
   # week. Point it at whichever real community guild should receive the
   # leaderboard; not a value anyone but you can pick.
-  WEEKLY_LEADERBOARD_GUILD_ID: "1336405641673183254"
-  WEEKLY_LEADERBOARD_CHANNEL_ID: "1501505980469612644"
+  # Production values, taken from the old production server's own .env at
+  # cutover (2026-10-01) -- this replaces the GamerComs STAGING guild that
+  # sat here, which after the application switch the production bot is not
+  # even a member of.
+  WEEKLY_LEADERBOARD_GUILD_ID: "1257300094680567808"
+  WEEKLY_LEADERBOARD_CHANNEL_ID: "1503522260592492825"
   WEEKLY_LEADERBOARD_TIMEZONE: "Europe/Stockholm"
   WEEKLY_LEADERBOARD_POST_DAY: "0"
   WEEKLY_LEADERBOARD_POST_HOUR: "19"
   WEEKLY_LEADERBOARD_POST_MINUTE: "0"
 
-  # Optional analytics; leave empty to keep PostHog disabled.
-  POSTHOG_HOST: ""
+  # Analytics. Enabled at cutover with old production's own host; the paired
+  # POSTHOG_API_KEY lives in gamercoms-secrets.
+  POSTHOG_HOST: "https://eu.i.posthog.com"
 
   # Nightly Mongo backup target (k8s/14-mongo-backup-cronjob.yaml). Not
   # secret by itself -- pair with the mongo-backup-object-storage Secret
