@@ -1,0 +1,229 @@
+# Fluent Bit shipping config for the gamercoms namespace -- the log pipeline
+# that feeds Grafana Cloud.
+#
+# THIS FILE HAD NO HOME IN GIT UNTIL 2026-10-02. It existed only as a live
+# ConfigMap in the cluster, built by hand through `helm upgrade`, so there was
+# no record of how logging worked and no way to rebuild it. That is why it is
+# here now.
+#
+# ---------------------------------------------------------------------------
+# NOT APPLIED BY `kubectl apply -f k8s/`. The Fluent Bit chart reads this via
+# `existingConfigMap`, so the real resource is created separately:
+#
+#   kubectl create configmap fluent-bit-custom-config -n gamercoms \
+#     --from-file=fluent-bit.yaml=<this file, with the credentials filled in> \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#   kubectl rollout restart daemonset/fluent-bit -n gamercoms
+#
+# `http_user` and `http_passwd` are PLACEHOLDERS: this repo is public and that
+# token can write to the Grafana stack. Take the real values from the live
+# ConfigMap, or from Grafana Cloud -> Connections -> OTLP endpoint.
+# ---------------------------------------------------------------------------
+#
+# Two things here were silently broken until 2026-10-02 and are worth not
+# reintroducing; both are explained inline where they were fixed.
+#   1. A `kubernetes` processor that skipped every record, so application JSON
+#      was never parsed and nothing was filterable in Grafana.
+#   2. bot-api's logs shipping under service.name "bot", making the two halves
+#      of the split bot indistinguishable.
+
+service:
+  flush: 1
+  log_level: info
+  http_server: on
+  http_listen: 0.0.0.0
+  http_port: 2020
+  health_check: on
+  parsers_file: /fluent-bit/etc/parsers.conf
+
+pipeline:
+  inputs:
+    - name: tail
+      path: /var/log/containers/*_gamercoms_backend-*.log
+      multiline.parser: docker, cri
+      tag: kube.backend
+      mem_buf_limit: 5MB
+      skip_long_lines: on
+      processors:
+        logs:
+          # Parse the application's own JSON line so level/msg/status/route
+          # become real queryable fields instead of one opaque string.
+          #
+          # This replaced a `kubernetes` processor that was silently doing
+          # NOTHING: it logged `incoming record tag (kube.backend) is shorter
+          # than kube_tag_prefix value (kube.var.log.containers.), skip filter`
+          # for every single record, because our tags are short custom ones
+          # rather than the path-derived default it expects. Its merge_log
+          # therefore never ran -- which is why nothing was filterable in
+          # Grafana. Its pod-metadata enrichment is not missed: service.name is
+          # set explicitly below.
+          #
+          # `reserve_data` keeps the non-JSON fields (stream, time) alongside
+          # the parsed ones. Lines that are not JSON -- Next.js startup banners,
+          # mongod output -- pass through unchanged rather than being dropped.
+          - name: parser
+            key_name: log
+            parser: json
+            reserve_data: true
+          - name: opentelemetry_envelope
+          - name: content_modifier
+            context: otel_resource_attributes
+            action: upsert
+            key: service.name
+            value: backend
+
+    # bot-api MUST be matched before, and excluded from, the `bot` input
+    # below. Container log files are named <pod>_<namespace>_<container>-<id>,
+    # so bot-api's file is `..._gamercoms_bot-api-<id>.log` -- which the glob
+    # `*_gamercoms_bot-*` also matches. The result was that both halves of the
+    # split bot shipped under service.name "bot" and were indistinguishable in
+    # Grafana. That mattered on 2026-10-02: a bug that only manifested on
+    # bot-api (an empty guild cache, because that half holds no gateway
+    # session) could not be told apart from gateway-side logs.
+    - name: tail
+      path: /var/log/containers/*_gamercoms_bot-api-*.log
+      multiline.parser: docker, cri
+      tag: kube.botapi
+      mem_buf_limit: 5MB
+      skip_long_lines: on
+      processors:
+        logs:
+          # Parse the application's own JSON line so level/msg/status/route
+          # become real queryable fields instead of one opaque string.
+          #
+          # This replaced a `kubernetes` processor that was silently doing
+          # NOTHING: it logged `incoming record tag (kube.backend) is shorter
+          # than kube_tag_prefix value (kube.var.log.containers.), skip filter`
+          # for every single record, because our tags are short custom ones
+          # rather than the path-derived default it expects. Its merge_log
+          # therefore never ran -- which is why nothing was filterable in
+          # Grafana. Its pod-metadata enrichment is not missed: service.name is
+          # set explicitly below.
+          #
+          # `reserve_data` keeps the non-JSON fields (stream, time) alongside
+          # the parsed ones. Lines that are not JSON -- Next.js startup banners,
+          # mongod output -- pass through unchanged rather than being dropped.
+          - name: parser
+            key_name: log
+            parser: json
+            reserve_data: true
+          - name: opentelemetry_envelope
+          - name: content_modifier
+            context: otel_resource_attributes
+            action: upsert
+            key: service.name
+            value: bot-api
+
+    - name: tail
+      path: /var/log/containers/*_gamercoms_bot-*.log
+      exclude_path: /var/log/containers/*_gamercoms_bot-api-*.log
+      multiline.parser: docker, cri
+      tag: kube.bot
+      mem_buf_limit: 5MB
+      skip_long_lines: on
+      processors:
+        logs:
+          # Parse the application's own JSON line so level/msg/status/route
+          # become real queryable fields instead of one opaque string.
+          #
+          # This replaced a `kubernetes` processor that was silently doing
+          # NOTHING: it logged `incoming record tag (kube.backend) is shorter
+          # than kube_tag_prefix value (kube.var.log.containers.), skip filter`
+          # for every single record, because our tags are short custom ones
+          # rather than the path-derived default it expects. Its merge_log
+          # therefore never ran -- which is why nothing was filterable in
+          # Grafana. Its pod-metadata enrichment is not missed: service.name is
+          # set explicitly below.
+          #
+          # `reserve_data` keeps the non-JSON fields (stream, time) alongside
+          # the parsed ones. Lines that are not JSON -- Next.js startup banners,
+          # mongod output -- pass through unchanged rather than being dropped.
+          - name: parser
+            key_name: log
+            parser: json
+            reserve_data: true
+          - name: opentelemetry_envelope
+          - name: content_modifier
+            context: otel_resource_attributes
+            action: upsert
+            key: service.name
+            value: bot
+
+    - name: tail
+      path: /var/log/containers/*_gamercoms_frontend-*.log
+      multiline.parser: docker, cri
+      tag: kube.frontend
+      mem_buf_limit: 5MB
+      skip_long_lines: on
+      processors:
+        logs:
+          # Parse the application's own JSON line so level/msg/status/route
+          # become real queryable fields instead of one opaque string.
+          #
+          # This replaced a `kubernetes` processor that was silently doing
+          # NOTHING: it logged `incoming record tag (kube.backend) is shorter
+          # than kube_tag_prefix value (kube.var.log.containers.), skip filter`
+          # for every single record, because our tags are short custom ones
+          # rather than the path-derived default it expects. Its merge_log
+          # therefore never ran -- which is why nothing was filterable in
+          # Grafana. Its pod-metadata enrichment is not missed: service.name is
+          # set explicitly below.
+          #
+          # `reserve_data` keeps the non-JSON fields (stream, time) alongside
+          # the parsed ones. Lines that are not JSON -- Next.js startup banners,
+          # mongod output -- pass through unchanged rather than being dropped.
+          - name: parser
+            key_name: log
+            parser: json
+            reserve_data: true
+          - name: opentelemetry_envelope
+          - name: content_modifier
+            context: otel_resource_attributes
+            action: upsert
+            key: service.name
+            value: frontend
+
+    - name: tail
+      path: /var/log/containers/*_gamercoms_mongod-*.log
+      multiline.parser: docker, cri
+      tag: kube.mongo
+      mem_buf_limit: 5MB
+      skip_long_lines: on
+      processors:
+        logs:
+          # Parse the application's own JSON line so level/msg/status/route
+          # become real queryable fields instead of one opaque string.
+          #
+          # This replaced a `kubernetes` processor that was silently doing
+          # NOTHING: it logged `incoming record tag (kube.backend) is shorter
+          # than kube_tag_prefix value (kube.var.log.containers.), skip filter`
+          # for every single record, because our tags are short custom ones
+          # rather than the path-derived default it expects. Its merge_log
+          # therefore never ran -- which is why nothing was filterable in
+          # Grafana. Its pod-metadata enrichment is not missed: service.name is
+          # set explicitly below.
+          #
+          # `reserve_data` keeps the non-JSON fields (stream, time) alongside
+          # the parsed ones. Lines that are not JSON -- Next.js startup banners,
+          # mongod output -- pass through unchanged rather than being dropped.
+          - name: parser
+            key_name: log
+            parser: json
+            reserve_data: true
+          - name: opentelemetry_envelope
+          - name: content_modifier
+            context: otel_resource_attributes
+            action: upsert
+            key: service.name
+            value: mongo
+
+  outputs:
+    - name: opentelemetry
+      match: kube.*
+      host: otlp-gateway-prod-eu-north-0.grafana.net
+      port: 443
+      logs_uri: /otlp/v1/logs
+      tls: on
+      tls.verify: on
+      http_user: REPLACE_ME_GRAFANA_USER_ID
+      http_passwd: REPLACE_ME_GRAFANA_PUSH_TOKEN

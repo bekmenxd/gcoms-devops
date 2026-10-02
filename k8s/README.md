@@ -29,6 +29,7 @@ option. See `13-mongo.yaml` for the full reasoning.
 | `14-mongo-backup-cronjob.yaml` | Nightly `mongodump` -> Linode Object Storage (S3-compatible) |
 | `15-networkpolicies.yaml` | Ingress-only NetworkPolicies -- only backend/bot/the backup job can reach Mongo, etc. |
 | `20-ingress.yaml` | Routes `staging.gamercoms.com` / `api.staging.gamercoms.com` (first environment on this cluster is staging, not prod), with rate limiting |
+| `16-fluent-bit-config.example.yaml` | **Template only.** The Grafana Cloud log-shipping config. Not applied by `kubectl apply -f k8s/` — the Fluent Bit chart loads it via `existingConfigMap`; see the header for the exact command and the credentials to fill in |
 | `21-ingress-production.yaml` | Routes `www.gamercoms.com` / `gamercoms.com` / `api.gamercoms.com` via `letsencrypt-prod`. **Not applied yet** -- see the cutover runbook below for why the order matters |
 
 Apply in filename order (`kubectl apply -f k8s/`) once the placeholders below
