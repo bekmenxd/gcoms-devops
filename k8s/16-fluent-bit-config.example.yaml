@@ -223,6 +223,24 @@ pipeline:
       host: otlp-gateway-prod-eu-north-0.grafana.net
       port: 443
       logs_uri: /otlp/v1/logs
+      # Map the application's own `level` field onto OTLP SeverityText.
+      #
+      # Without this Loki never sees a severity and falls back to guessing,
+      # exposed as the `detected_level` field -- and it guesses badly. On
+      # 2026-10-06 Grafana reported 166,000 backend errors and 5,120 mongo
+      # errors, while the pods themselves had ZERO error-level lines in 24h
+      # (backend: 138 info / 21 warn; mongod: 4,784 lines, every one severity
+      # `I`). The backend figure was almost entirely the pre-2026-10-02
+      # health-probe volume, misclassified wholesale.
+      #
+      # NOTE this only fixes the three app services. mongod writes its
+      # severity as `s` with values I/W/E, so it has no `level` field and is
+      # still guessed at; mapping that needs its own output or a lua
+      # processor translating I/W/E to info/warn/error.
+      #
+      # Either way, filtering on OUR field (`| level="error"`) was always
+      # accurate -- it is `detected_level` that lied.
+      logs_severity_text_message_key: level
       tls: on
       tls.verify: on
       http_user: REPLACE_ME_GRAFANA_USER_ID
