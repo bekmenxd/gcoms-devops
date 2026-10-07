@@ -1,0 +1,74 @@
+# Grafana alert rule: notify when any application service logs an error.
+#
+# Import with:  Alerting -> Alert rules -> New alert rule -> ... -> Import,
+# or POST to /api/v1/provisioning/alert-rules with a service account token.
+#
+# ONE THING TO FILL IN: replace DATASOURCE_UID_HERE with the uid of the Loki
+# data source (grafanacloud-<stack>-logs). Find it in the URL when you open
+# Connections -> Data sources -> that source: .../datasources/edit/<uid>
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: gamercoms
+    folder: Gamercoms
+    # Evaluated every 5 minutes. Matches the query window below, so no gap and
+    # no double-counting.
+    interval: 5m
+    rules:
+      - uid: gamercoms-prod-errors
+        title: Fel i produktion
+        condition: C
+        # `for: 0m` -- fire on the first evaluation that sees an error rather
+        # than waiting for it to persist. An error log is already a discrete
+        # event; there is nothing to wait out, unlike a CPU spike.
+        for: 0m
+        # No data means no logs arrived at all in the window. That is normal
+        # here: at current traffic the services can genuinely be silent for
+        # five minutes. Alerting on it would cry wolf nightly.
+        noDataState: OK
+        # But a broken query or an unreachable data source IS worth knowing
+        # about -- otherwise the alert fails silently and you believe
+        # everything is fine because nothing is firing.
+        execErrState: Alerting
+        annotations:
+          summary: "{{ $value }} fel loggade de senaste 5 minuterna"
+          description: >-
+            Kolla i Grafana: {service_name=~"backend|bot|bot-api|frontend"} | level="error"
+            Varje felrad bär ett reqId som följer anropet genom alla tjänster.
+        labels:
+          severity: critical
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: DATASOURCE_UID_HERE
+            model:
+              refId: A
+              # `mongo` is deliberately excluded: mongod writes its severity as
+              # `s` (I/W/E) and has no `level` field, so Loki guesses at it and
+              # guesses wrong -- it reported ~5,000 "errors" on 2026-10-06 from
+              # a database that had logged none. Including it here would make
+              # the alert fire constantly and immediately be ignored.
+              expr: >-
+                sum(count_over_time({service_name=~"backend|bot|bot-api|frontend"} | level="error" [5m]))
+              queryType: range
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              reducer: last
+              expression: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
