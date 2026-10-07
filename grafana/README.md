@@ -36,7 +36,29 @@ The bottom panel queries raw lines with no filter at all. If it shows data but
 the panels above are empty, it is one of those two. Expand a row there to see
 the real field names.
 
-### Suggested alert, not included here
+## `alert-fel-i-produktion.yaml`
+
+The alert that matters more than the dashboard: a dashboard shows a number you
+have to remember to look at, an alert tells you when something broke.
+
+Fires when any application service logs an error in the last 5 minutes.
+`mongo` is deliberately excluded — mongod writes severity as `s` (I/W/E) with
+no `level` field, so Loki guesses and guesses wrong; on 2026-10-06 it reported
+~5,000 "errors" from a database that had logged none. Including it would make
+the alert fire constantly and be ignored within a day.
+
+**One value to fill in**: replace `DATASOURCE_UID_HERE` with the Loki data
+source's uid, visible in the URL at Connections → Data sources → that source.
+
+Then either import it in the Alerting UI, or POST it to
+`/api/v1/provisioning/alert-rules` with a service account token (Editor role,
+created under Administration → Users and access → Service accounts).
+
+Point it at a contact point under Alerting → Notification policies, and use
+the **Test** button there before trusting it — an alert you have never seen
+arrive is not yet an alert.
+
+### Original note, superseded by the file above
 
 Alerts live outside the dashboard JSON. The one worth having:
 `sum(count_over_time({service_name=~".+"} | level="error" [5m])) > 0`,
