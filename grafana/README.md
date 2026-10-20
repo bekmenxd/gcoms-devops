@@ -20,21 +20,21 @@ push notifications for alerts. Star this dashboard so it is one tap away.
 
 ### If panels are empty
 
-The queries were written **without being able to test them against the real
-data** — the only Grafana credential in the cluster is the Fluent Bit push
-token, which has no read scope. Two assumptions may need correcting, and the
-dashboard carries a diagnostics panel at the bottom to tell them apart:
+First check the **Datakälla** dropdown: it must be `grafanacloud-<stack>-logs`.
+`-alert-state-history` is Grafana's internal alerting store and holds no app
+logs (the dropdown now hides it, but an older import may still have it saved).
 
-1. **The service label is assumed to be `service_name`**, from the
+The first version of the queries was written without being able to test them,
+and was corrected against real data on 2026-10-20:
+
+1. **The service label is `service_name`** (confirmed), from the
    `service.name` OTLP resource attribute Fluent Bit sets per input.
-2. **`level`, `status`, `route` and `durationMs` are assumed to be structured
-   metadata**, i.e. filterable directly as `| level="error"`. If they arrive
-   inside the log body instead, every query needs `| json` first:
-   `| json | level="error"`.
+2. **`level`, `status`, `route` and `durationMs` live inside the JSON log
+   body, not in structured metadata**, so every query parses with `| json`
+   before filtering: `| json | level="error"`.
 
 The bottom panel queries raw lines with no filter at all. If it shows data but
-the panels above are empty, it is one of those two. Expand a row there to see
-the real field names.
+the panels above are empty, expand a row there to see the real field names.
 
 ## `alert-fel-i-produktion.yaml`
 

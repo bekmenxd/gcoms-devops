@@ -33,7 +33,7 @@ groups:
         annotations:
           summary: "{{ $value }} fel loggade de senaste 5 minuterna"
           description: >-
-            Kolla i Grafana: {service_name=~"backend|bot|bot-api|frontend"} | level="error"
+            Kolla i Grafana: {service_name=~"backend|bot|bot-api|frontend"} | json | msg="request" | level="error"
             Varje felrad bär ett reqId som följer anropet genom alla tjänster.
         labels:
           severity: critical
@@ -51,7 +51,7 @@ groups:
               # a database that had logged none. Including it here would make
               # the alert fire constantly and immediately be ignored.
               expr: >-
-                sum(count_over_time({service_name=~"backend|bot|bot-api|frontend"} | level="error" [5m]))
+                sum(count_over_time({service_name=~"backend|bot|bot-api|frontend"} | json | msg="request" | level="error" [5m]))
               queryType: range
               intervalMs: 60000
               maxDataPoints: 43200

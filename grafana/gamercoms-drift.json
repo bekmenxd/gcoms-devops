@@ -20,7 +20,8 @@
         "type": "datasource",
         "query": "loki",
         "current": {},
-        "hide": 0
+        "hide": 0,
+        "regex": "/^(?!.*alert-state-history).*$/"
       },
       {
         "name": "service",
@@ -48,6 +49,17 @@
             "$__all"
           ]
         }
+      },
+      {
+        "name": "reqid",
+        "label": "reqId",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0
       }
     ]
   },
@@ -66,7 +78,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=~\"$service\"} | level=\"error\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=~\"$service\"} | json | msg=\"request\" | route != \"\" | level=\"error\" [$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -138,7 +150,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum(count_over_time({service_name=~\"$service\"} | level=\"warn\" [$__range]))",
+          "expr": "sum(count_over_time({service_name=~\"$service\"} | json | msg=\"request\" | route != \"\" | level=\"warn\" [$__range]))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -210,7 +222,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "sum by (level) (count_over_time({service_name=~\"$service\"} | level=~\"error|warn\" [$__auto]))",
+          "expr": "sum by (level) (count_over_time({service_name=~\"$service\"} | json | msg=\"request\" | route != \"\" | level=~\"error|warn\" [$__auto]))",
           "queryType": "range",
           "refId": "A",
           "legendFormat": "{{level}}"
@@ -278,6 +290,143 @@
     },
     {
       "type": "table",
+      "title": "Vad gick fel — felorsaker",
+      "description": "En rad per felorsak. \"fel\" är felmeddelandet, \"anrop\" är det interna anrop som misslyckades (t.ex. backend → bot-api). Rader loggade före uppdateringen saknar orsak.",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "topk(20, sum by (service_name, route, error, upstream_path) (count_over_time({service_name=~\"$service\"} | json | msg=\"request\" | level=\"error\" | label_format error=`{{ if .error }}{{ .error }}{{ else }}okänt (loggat före 2026-10-21){{ end }}` [$__range])))"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "antal",
+              "service_name": "tjänst",
+              "Value #A": "antal",
+              "err_message": "fel",
+              "error": "fel",
+              "upstream_path": "anrop"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "antal",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "options": {},
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Senaste fel",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "{service_name=~\"$service\"} | json | msg=\"request\" | level=\"error\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 5,
+      "description": "En rad per misslyckat anrop. Klicka på raden: \"error\" är orsaken, \"upstream_*\" säger vilket internt anrop som föll (sökväg, status, timeout). Stack trace: klistra in reqId överst."
+    },
+    {
+      "type": "logs",
+      "title": "Följ en request (klistra in reqId överst)",
+      "datasource": {
+        "type": "loki",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "expr": "{service_name=~\".+\"} |= \"$reqid\" | json | reqId != \"\" | reqId = \"$reqid\"",
+          "queryType": "range",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "id": 6,
+      "description": "Alla rader, från alla tjänster, för ett och samma anrop. Backend skickar sitt reqId vidare till bot-api, så ett fel som började i bot-api syns här tillsammans med backend-raden."
+    },
+    {
+      "type": "table",
       "title": "Värst drabbade routes",
       "datasource": {
         "type": "loki",
@@ -291,7 +440,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "topk(10, sum by (route, status, service_name) (count_over_time({service_name=~\"$service\"} | level=~\"error|warn\" [$__range])))",
+          "expr": "topk(10, sum by (route, status, service_name) (count_over_time({service_name=~\"$service\"} | json | msg=\"request\" | route != \"\" | level=~\"error|warn\" [$__range])))",
           "queryType": "instant",
           "refId": "A"
         }
@@ -309,7 +458,9 @@
             },
             "renameByName": {
               "Value": "antal",
-              "service_name": "tjänst"
+              "service_name": "tjänst",
+              "Value #A": "antal",
+              "err_message": "fel"
             }
           }
         },
@@ -334,9 +485,9 @@
         "h": 9,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 48
       },
-      "id": 4
+      "id": 7
     },
     {
       "type": "timeseries",
@@ -352,7 +503,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "quantile_over_time(0.95, {service_name=~\"$service\"} | durationMs != \"\" | unwrap durationMs [$__auto]) by (service_name)",
+          "expr": "quantile_over_time(0.95, {service_name=~\"$service\"} | json | durationMs != \"\" | unwrap durationMs | __error__=\"\" [$__auto]) by (service_name)",
           "queryType": "range",
           "refId": "A",
           "legendFormat": "{{service_name}}"
@@ -380,13 +531,13 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 57
       },
-      "id": 5
+      "id": 8
     },
     {
       "type": "logs",
-      "title": "Senaste fel och varningar",
+      "title": "Senaste varningar (utan skannerbottar)",
       "datasource": {
         "type": "loki",
         "uid": "${datasource}"
@@ -398,7 +549,7 @@
             "uid": "${datasource}"
           },
           "editorMode": "code",
-          "expr": "{service_name=~\"$service\"} | level=~\"error|warn\"",
+          "expr": "{service_name=~\"$service\"} | json | msg=\"request\" | route != \"\" | level=\"warn\"",
           "queryType": "range",
           "refId": "A"
         }
@@ -411,31 +562,32 @@
         "dedupStrategy": "none"
       },
       "gridPos": {
-        "h": 11,
+        "h": 9,
         "w": 24,
         "x": 0,
-        "y": 35
+        "y": 65
       },
-      "id": 6
+      "id": 9,
+      "description": "4xx från riktiga routes. Anrop mot sökvägar som inte finns (bottar som letar efter .env osv.) är bortfiltrerade."
     },
     {
       "type": "text",
-      "title": "Om paneler är tomma",
+      "title": "Hur man läser felen",
       "datasource": {
         "type": "loki",
         "uid": "${datasource}"
       },
       "options": {
         "mode": "markdown",
-        "content": "Frågorna här är skrivna utan att ha kunnat testas mot er data — push-token saknar läsrättigheter. Två saker kan behöva justeras:\n\n1. **Etiketten.** Panelerna använder `service_name`. Kolla i panelen nedan vilken etikett tjänsterna faktiskt har.\n2. **Fälten.** Panelerna antar att `level`, `status`, `route` och `durationMs` är **strukturerad metadata**, alltså filtrerbara direkt: `| level=\"error\"`. Ligger de istället i loggtexten behövs `| json` först — byt då `| level=\"error\"` mot `| json | level=\"error\"` i varje panel.\n\nPanelen nedan visar råa rader utan något filter alls. Får du träffar där men inte ovanför, är det en av de två sakerna. Expandera en rad så ser du de verkliga fältnamnen."
+        "content": "**Så hittar du vad som gick fel**\n\n1. *Vad gick fel* visar felen grupperade: meddelandet (`fel`) och vilket internt anrop som föll (`anrop`).\n2. I *Senaste fel*, klicka på en rad. `error` är orsaken. `upstream_path`, `upstream_status` och `upstream_code` säger vilket anrop till en annan tjänst som misslyckades; `ECONNABORTED` betyder timeout. `bodyKeys` visar vilka fält anropet skickade, men aldrig värdena.\n3. Vill du se stack trace eller vad bot-api gjorde: kopiera `reqId` till rutan **reqId** överst. *Följ en request* visar hela anropet i alla tjänster.\n\nOm allt är tomt: kontrollera att **Datakälla** är `grafanacloud-…-logs`."
       },
       "gridPos": {
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 74
       },
-      "id": 7
+      "id": 10
     },
     {
       "type": "logs",
@@ -467,9 +619,9 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 80
       },
-      "id": 8
+      "id": 11
     }
   ]
 }
