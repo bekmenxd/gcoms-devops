@@ -163,9 +163,11 @@ both here default to a 2-6 replica HPA.
   outbound calls (Discord API, RAWG, Object Storage) are untouched. Locks
   down who can open a connection to each service: frontend/backend only from
   the ingress controller (plus frontend->backend), bot only from backend,
-  and Mongo only from backend/bot/the backup CronJob/other Mongo replicas.
-  Requires the cluster's CNI to enforce NetworkPolicy -- LKE's default CNI
-  (Calico) does.
+  bot-api only from backend, and Mongo only from backend/bot/bot-api/the
+  backup CronJob/other Mongo replicas. Requires the cluster's CNI to enforce
+  NetworkPolicy -- LKE's default CNI (Calico) does. Mongo's pods are
+  labelled `app: mongo-svc` by the operator (see `13-mongo.yaml`), so that is
+  the selector to use.
 - **Mongo backups.** `14-mongo-backup-cronjob.yaml` -- there's no automated
   backup at all in the current Compose setup, so this is new coverage, not
   parity. Needed regardless of single-pod vs. replica-set Mongo: a replica

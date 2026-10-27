@@ -12,11 +12,13 @@
 # (Calico) does. If policies stop being enforced after a cluster change,
 # check the CNI first.
 #
-# The `ingress-nginx` namespaceSelector below assumes the controller is
-# installed into a namespace literally labeled
-# kubernetes.io/metadata.name=ingress-nginx (the default for the standard
-# ingress-nginx Helm chart / manifest). Adjust if the real install differs --
-# not verified against a live cluster.
+# The `ingress-nginx` namespaceSelector below matches the controller's
+# namespace (kubernetes.io/metadata.name=ingress-nginx), verified live: the
+# site is served through it while these policies are in force.
+#
+# Verify a policy actually selects pods after any change -- a selector that
+# matches nothing is accepted silently and enforces nothing. Check with:
+#   kubectl get pods -n gamercoms -l <selector>
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -106,9 +108,12 @@ metadata:
   name: mongo-allow-app-and-backup-only
   namespace: gamercoms
 spec:
+  # The operator labels its pods `app: <name>-svc` and the StatefulSet's
+  # (immutable) selector is built from that, so this label cannot be changed
+  # from 13-mongo.yaml -- match it rather than fight it.
   podSelector:
     matchLabels:
-      app: mongo
+      app: mongo-svc
   policyTypes: ["Ingress"]
   ingress:
     - from:
@@ -129,6 +134,6 @@ spec:
         # Replica set members replicating to each other.
         - podSelector:
             matchLabels:
-              app: mongo
+              app: mongo-svc
       ports:
         - port: 27017

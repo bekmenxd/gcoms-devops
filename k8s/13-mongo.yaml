@@ -33,11 +33,13 @@
 # doesn't take the actual database volumes with it. This is a real database,
 # unlike the stateless frontend/backend/bot pods.
 #
-# Pod labels are set explicitly (via the statefulSet override below) instead
-# of trusting the operator's default `<name>-svc` label, so
-# k8s/15-networkpolicies.yaml has a stable, predictable selector to match
-# against. Verify with `kubectl get pods -n gamercoms -l app=mongo` once
-# deployed -- this hasn't been checked against a live operator reconcile.
+# Pod labels: the pods carry the operator's default `app: mongo-svc`, and the
+# StatefulSet selector is built from it (immutable), so that is what
+# k8s/15-networkpolicies.yaml and the anti-affinity below match. An earlier
+# `app: mongo` override here never took effect: it sat in a second
+# `template:` key under statefulSet.spec, and YAML keeps only the last
+# duplicate key, so it was silently dropped. Don't re-add it -- relabelling
+# would fight the StatefulSet's selector.
 apiVersion: mongodbcommunity.mongodb.com/v1
 kind: MongoDBCommunity
 metadata:
@@ -62,10 +64,6 @@ spec:
       scramCredentialsSecretName: mongo-gamercoms-scram
   statefulSet:
     spec:
-      template:
-        metadata:
-          labels:
-            app: mongo
       volumeClaimTemplates:
         - metadata:
             name: data-volume
